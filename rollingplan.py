@@ -10,7 +10,10 @@ RollingPlan v0.3 — 日常计划管理（面向普通用户）
 """
 
 import sys
+import os
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget,
@@ -1382,32 +1385,71 @@ THEME_OPTIONS = [
 ]
 
 
+def _setup_logger():
+    """建一个滚动日志文件 (~/.hermes_cache/rollingplan_debug.log)。
+    exe 启动/主题切换/exceptions 都写这里，方便排查。
+    """
+    log_dir = os.path.expanduser("~/.hermes_cache")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except Exception:
+        return None
+    log_path = os.path.join(log_dir, "rollingplan_debug.log")
+    try:
+        h = RotatingFileHandler(log_path, maxBytes=512000, backupCount=2, encoding="utf-8")
+        h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        log = logging.getLogger("rollingplan")
+        log.setLevel(logging.DEBUG)
+        log.addHandler(h)
+        return log
+    except Exception:
+        return None
+
+
+_LOG = _setup_logger()
+
+
+def _log(msg):
+    """写日志（如果有 logger），同时 stderr"""
+    if _LOG:
+        try:
+            _LOG.debug(msg)
+        except Exception:
+            pass
+    sys.stderr.write(f"[RollingPlan] {msg}\n")
+
+
 def apply_theme(app: QApplication, theme_name: str):
     """应用主题。会同时修复 Tab 文字对比度问题。
     theme_name: "dark" / "light" / "auto"
-    失败时（pyqtdarktheme 未装）静默回退。
     """
+    _log(f"apply_theme({theme_name}) called")
     try:
         import qdarktheme
-    except ImportError:
+        _log(f"qdarktheme loaded from: {qdarktheme.__file__}")
+    except ImportError as e:
+        _log(f"qdarktheme 未安装：{e}")
         return
 
-    if theme_name == "auto":
-        qdarktheme.setup_theme("auto")
-    else:
-        qdarktheme.setup_theme(theme_name)
+    try:
+        if theme_name == "auto":
+            qdarktheme.setup_theme("auto")
+        else:
+            qdarktheme.setup_theme(theme_name)
+        _log(f"qdarktheme.setup_theme('{theme_name}') OK, stylesheet len={len(app.styleSheet())}")
+    except Exception as e:
+        _log(f"qdarktheme.setup_theme('{theme_name}') 失败：{e}")
+        return
 
     # Tab 文字对比度修复
-    # pyqtdarktheme dark 主题下 QTabBar 默认文字过暗，
-    # palette() 角色映射在该主题下也是暗色，所以直接用具体颜色
     if theme_name == "dark":
-        tab_color = "#E0E0E0"           # 浅灰
-        tab_selected_bg = "#1E88E5"     # 亮蓝
-        tab_selected_fg = "#FFFFFF"     # 白
+        tab_color = "#E0E0E0"
+        tab_selected_bg = "#1E88E5"
+        tab_selected_fg = "#FFFFFF"
     elif theme_name == "light":
-        tab_color = "#424242"           # 深灰
-        tab_selected_bg = "#1976D2"     # 蓝
-        tab_selected_fg = "#FFFFFF"     # 白
+        tab_color = "#424242"
+        tab_selected_bg = "#1976D2"
+        tab_selected_fg = "#FFFFFF"
     else:  # auto
         tab_color = "palette(bright-text)"
         tab_selected_bg = "palette(highlight)"
@@ -1427,14 +1469,15 @@ def apply_theme(app: QApplication, theme_name: str):
         color: palette(text);
     }}
     """
-    # 合并到现有 stylesheet（保留 inline 控件级别样式）
     current = app.styleSheet()
     app.setStyleSheet(current + tab_fix)
+    _log(f"主题已应用：{theme_name}，最终 stylesheet len={len(app.styleSheet())}")
 
 
 # ============== 入口 ==============
 
 if __name__ == "__main__":
+    _log(f"启动 cwd={os.getcwd()}")
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
@@ -1443,6 +1486,7 @@ if __name__ == "__main__":
     saved_theme = s.value(THEME_KEY, "dark")
     if saved_theme not in ("dark", "light", "auto"):
         saved_theme = "dark"
+    _log(f"saved theme from QSettings: {saved_theme}")
     apply_theme(app, saved_theme)
 
     win = MainWindow()
