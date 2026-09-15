@@ -1,130 +1,117 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-15 21:47
+> **最后更新**：2026-09-15 22:15
 > **会话位置**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **远程**：`origin/main` == `main` == `10eea61`（v0.8 + 文档同步，已全部 push，无未推提交）
+> **远程**：v0.9 提交后与 `origin/main` 同步（无未推提交）
 
 ## 项目一句话
 
-PyQt5 桌面应用。**v0.8 已完成**：「日常计划管理」——多分类（工作/学习/健身...）的计划按天滚动分配，支持自动顺延加一个额外安排 + 指定时段添加 + 点一下完成让后续计划滚上来 + 导入/导出 JSON 备份 + 重置当前分类进度 + 三主题切换（自写 QSS）+ 冷调极简 UI（折叠分组 + 居中主区 + 大按钮）。
+PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计划当一列**待办队列**，时段是「当天承装队列的栏位」；完成一条就归档、后面整体上滚一格（额外轮的跟着滚上来）。多分类（工作/学习/健身…）+ 加一个 / 添加指定 / 退回（可撤销完成）+ 导入导出 JSON 备份 + 重置进度 + 三主题（自写 QSS）+ 冷调极简 UI。
 
 ## 当前版本
 
-**v0.8** — 16 commits on `main`，已全部 push
+**v0.9** — 17 commits on `main`，已全部 push
+
+## v0.9 核心改动（已落地）—— 重写「完成并滚动」
+
+**用户报的 bug（v0.8 的错）**：早/中/晚三格、子计划 1..9。点「早1 的完成」，
+它去**借第二天同名的早4** 顶上 → 早 变成 4；任务4 同时出现在第 1 天和第 2 天；
+再点一次基本没反应（那一格还是 4），但背地里又借了一条（4 和 7 一起挂在额外轮）。
+
+**根因**：`complete_today_slot()` 走的是 `borrow_slot(时段名)` —— 语义是「从未来借一条同名时段」，
+而用户要的是「当天这列整体上移一格」。所以这不是补几行能修好的，是数据模型的事。
+
+**v0.9 的模型**：
+- **队列** = `plans` 去掉已完成（`archived`）的部分，保持原顺序
+- **今天的行** = 队列里从 `consumed` 开始的 `slots_per_day()` 条；时段名只是行号
+- **完成** = 把这条从队列拿走（归档）→ 队列一变，今天和后面几天的显示自然整体上移
+  - 点早1 完成 → 早2 中3 晚4；第 2 天 → 5/6/7（不重复、不丢）
+- **额外轮** = 用户点「加一个」从队列后段拉进来的计划，**不带时段名**（时段只是当天的栏位）；
+  当它出现在今天的行上时算「滚上来了」，不在额外轮区重复显示
+- **退回** = 优先**撤销今天最近一次完成**（按钮文案变 `↶ 撤销完成`）；今天没完成可撤时
+  才退额外轮最后一个（文案 `⤴ 退回`）
+- **进度** = 完成一条 +1
+- 顶部多一行「🗂 今天已完成：…」，归档了什么看得见
+
+**代码**：
+- `ParentPlan` 新增 `archived` / `archived_base` / `consumed`（取代 v0.8 的 `completed_today`）
+- `PlanScheduler` 新增 `pending()` / `today_state()` / `done_today()` / `total_done()` /
+  `undo_complete()` / `can_undo_complete()` / `raw_calendar()`；重写 `get_day_plans` /
+  `get_calendar` / `complete_today_slot` / `_future_slot_positions` / `get_progress` / `all_consumed`
+- `PlanExecutor`：日内行 / 额外轮 / 日历预览 / 退回按钮改造；新增「今天已完成」标签
+- 制定页「计划预览」改用 `raw_calendar()`（铺开看计划怎么分，不受进度影响）
+- **旧存档自动迁移**：`from_dict` 见到 v0.8 的 `completed_today`（slot 序号）→ 转成计划内容
 
 ### v0.8 核心改动（已落地）
-
-用户反馈（v0.7 之后）：
-- 暗色主题下文字看不见（看书/刷题/复习 渲染成黑字压在黑底上）
-- 全局字号偏小
-- 缺「点一下完成 → 下一条滚上来」的滚动感
-
-根因：`_add_slot_row()` 对非额外安排槽位硬写了 `plan_label.setStyleSheet('color: black')`，`progress_label` 硬写 `color: gray`（`#808080` 在暗底上不可见），加上 toolbutton / label 上一堆 inline `color: #888` / `gray` 全部和 QSS 的文字色打架。
-
-修复：
-- 删掉所有 widget 级硬编码文字色，只留背景色和边框色 —— 文字色统一交给 QSS（DARK_QSS `QLabel { color: #cccccc }` / LIGHT_QSS `color: #222222`）
-- 默认字号 11pt → 13pt；`date_label` 14pt → 18pt；`slot_label` / `plan_label` 14pt → 16pt
-- `(无)` 占位文字改用 italic，不再用灰色
-- `progress_label` / 折叠按钮 / 「更多」按钮的文字色都改为主题托管
-
-新功能 完成并滚动（complete-and-scroll）：
-- 新增 `ParentPlan.completed_today: list[slot_idx]`
-- 新增 `PlanScheduler.complete_today_slot(slot_idx)` / `can_complete_today_slot()` —— 把 `(current_day, slot_idx)` 标记为已归档，并立刻 `borrow_slot(sname)` 去未来取同名时段的下一条计划
-- `get_day_plans()` 更新：若 `slot_idx in completed_today`，按顺序查 `borrowed_slots`，用同意时段名的下一条借来的计划顶替原计划（这就是「滚上来」的效果）；没得借就渲染空
-- `on_next_day` 清空 `completed_today`；`to_dict` / `from_dict` 持久化 `completed_today`；`reset_progress` 也清空
-- `_add_slot_row()` 在 `show_complete=True` 且 plan 非空时（只限今天的槽位）右侧加一个「✓ 完成」按钮；新增 `on_complete_slot(slot_idx)` 处理器
+- 暗色主题文字对比度修复（widget 级 inline 颜色会盖过 QSS —— 全删，文字色统一交给 QSS）
+- 字号整体加大（默认 11→13pt，日期 18pt，时段/计划名 16pt）
+- 完成并滚动**首版**（语义错的，v0.9 重写）
 
 ### v0.7 核心改动（已落地）
-
-- **自写 QSS 主题（弃用 pyqtdarktheme）**：v0.5/v0.6 的 exe 里主题切换静默失效 —— `qdarktheme.setup_theme()` 在 PyInstaller `--onefile --windowed` 下 no-op（无异常、无日志、UI 不变，疑似 `_os_appearance` 模块访问方式和 onefile 解包布局不匹配）。改为自写 `DARK_QSS` / `LIGHT_QSS`（各 30+ 行），覆盖 QWidget / QMainWindow / QLabel / QLineEdit / QListWidget / QComboBox / QPushButton / QToolButton / QTabWidget / QTabBar（带选中态对比度修复） / QGroupBox / QScrollBar / QMenu / QMessageBox / QProgressBar / QCheckBox / QRadioButton / QStatusBar
-- 新增 `_detect_system_theme()` 处理 auto（Windows 走注册表 `AppsUseLightTheme`，macOS 走 `defaults`）
-- widget 级 inline stylesheet（主操作 `#2196F3` 蓝底 / 完成 `#4CAF50` 绿底 / 额外安排 `#E8F5E9` 浅绿）仍在、优先级高于 QSS —— QSS 只管通用 widget
-- `build_windows.bat` 去掉 `pip install pyqtdarktheme` 和 `--collect-all qdarktheme`（包小 ~5MB，运行时无外部依赖）
-- `test_theme_v05.py` 重写为 QSS 版本：38 断言（原 17）
+- 自写 QSS 主题（弃用 pyqtdarktheme —— onefile 打包后 `setup_theme()` 静默 no-op）
+- `_detect_system_theme()` 处理 auto（Windows 注册表 / macOS defaults）
+- 打包小 ~5MB，运行时无外部依赖
 
 ### v0.6 核心改动（已落地）
-
-- **冷调极简 UI**：制定计划页三个 GroupBox（分类列表/计划清单/时段）默认收起，用 QToolButton 手动控制 visibility（绕开 pyqtdarktheme 下 QGroupBox checkable 不生效的坑）
-- **执行计划页底部「更多 ▾」**：收纳退回 / 添加指定 / 额外安排 / 计划日历等次要操作
-- **「今天」主区垂直居中**：日期+进度靠上，时段居中显示，主操作按钮紧贴底部
-- **主操作按钮加大**：minHeight=50 + 圆角 6px + 内边距 14px + 字号 14pt
-- **时段字号加大到 14pt**
-- **执行页主题切换**：从制定页下沉到执行页，两页都能切
-- 新增 `test_minimal_v06.py`：32 个断言
+- 冷调极简 UI：三个 GroupBox 默认收起（QToolButton 手动控制 visibility）
+- 执行页底部「更多 ▾」收纳次要操作；「今天」主区垂直居中；主操作按钮加大（minHeight=50）
 
 ### v0.5 核心改动（已落地）
-
-- **三主题切换**：DarkFlat / LightClean / System（跟随系统）
-- **主题切换入口**：制定计划页左上角下拉框，实时生效
-- **跨会话持久化**：QSettings `RollingPlan/theme`
-- **Tab 文字对比度修复**：dark 主题默认未激活 Tab 文字几乎不可见，改用具体颜色（dark: `#E0E0E0` / `#1E88E5`，light: `#424242` / `#1976D2`）
-- **缺 pyqtdarktheme 静默回退**：try/except ImportError + 默认 Fusion 样式（**v0.7 起此依赖已移除，本节仅存历史**）
+- 三主题切换（DarkFlat / LightClean / System）+ QSettings 持久化 + Tab 对比度修复
 
 ### v0.4 核心改动（已落地）
-
-- **导出 JSON**（📤 按钮，制定计划页右上角）：含 `version="0.4"` + `exported_at` ISO 时间戳 + `data` 段。默认文件名 `RollingPlan_backup_YYYY-MM-DD.json`。
-- **导入 JSON**（📥 按钮）：**覆盖语义**（不是合并）；先校验结构（parents/plans/time_slots/类型/版本号），失败给具体原因；**确认弹窗**显示分类数/计划总数/额外安排数；取消时 `data.load()` 回滚。
-- **重置当前分类进度**（🔄 按钮）：`current_day=0` + `borrowed_slots=[]`，plans/time_slots/start_date 不变。已是初始状态时弹"无需重置"提示。
-- 向后兼容无 wrapper 的旧版 `to_dict()` JSON。
-- `MainWindow.reload_executor()`：导入/重置后重建 executor 引用新 PlanData。
-- `ParentPlan.reset_progress()`：单分类进度归零的方法。
-- 新增 2 个测试文件：`test_import_export_v04.py`（49 断言）+ `test_reset_v04.py`（24 断言）。
+- 导出 JSON（含 version/exported_at/data）+ 导入 JSON（**覆盖语义**，先校验后弹窗确认，取消回滚）
+- 重置当前分类进度（🔄）：`current_day=0` + 额外轮清空 + 归档清空
+- 新增 `reload_executor()`（导入/重置后重建 executor）
 
 ### v0.3 核心改动（已落地）
+- UI 文案口语化：母计划→分类、子计划→计划、时间段→时段、额外轮→额外安排
+- 按钮布局重构：`➕ 加一个`（主） / `⤴ 退回` / `✓ 今天完成`（主） / `⋯ 添加指定`
 
-- UI 文案全面口语化：母计划→分类、子计划→计划、时间段→时段、额外轮→额外安排
-- **按钮布局重构**：
-  - `[➕ 加一个]`（蓝底主按钮，默认操作）— `borrow_next()`，自动顺延下一未完成
-  - `[⤴ 退回]`（次要）— `return_last_borrowed()`
-  - `[✓ 今天完成]`（绿底主按钮）— `on_next_day()`
-  - `[⋯ 添加指定]`（灰字次要）— `borrow_slot(name)`，弹框选时段
-- 新增 `scheduler.borrow_next() / can_borrow_next()`
-- 窗口标题改为「日常计划管理」
-
-### v0.2.1 健壮性修复（已落地）
-
-- 借用判定去重（`_borrowed_set()` helper）+ 借过再退后能再借
-- 「下一天」增加未完成确认弹窗（入口改名为「✓ 今天完成」→ 弹窗「进入明天」）
-- 借用期间禁止改时段（`PlanData.has_borrowed()`）
-- 额外安排视觉强化（背景色 `#E8F5E9` + 左边框 3px + 深绿文字 `#1B5E20`）
-- `load()` 失败从静默改日志输出 + 类型校验
-- `build_windows.bat` 全英文 + CRLF（修 GBK 编码乱码）
-
-### v0.2 基础功能（已落地）
-
-- 多分类 + 借指定时段 + 链式借 + 退回 + QSettings 持久化
+### v0.2.1 / v0.2 基础（已落地）
+- 借指定时段 / 链式借 / 退回 / 多分类独立 / QSettings 持久化
+- 借用判定去重、下一天确认弹窗、借用期间禁改时段、额外安排视觉强化、加载失败改日志
 
 ## 仓库状态
 
-- **`main`**：`04f6393`（v0.8），16 个 commit，**已 push，与 origin/main 一致**
+- **`main`**：v0.9，17 个 commit，**已 push，与 origin/main 一致**
 - **远程**：https://github.com/704315792-crypto/RollingPlan.git
-- **13 commits 于 2026-09-15 21:40 一次推完**（`9dc7387..04f6393`），覆盖 v0.2.2 起直到 v0.8 的全部工作
-
-- **验收副本**：`D:\0-task\rollingplan\`（每次新会话开始时从此处运行 / 打包）
-  - 与 git 仓库的文件已逐一对齐（rollingplan.py / README.md / STATE.md / build_windows.bat / 6 个测试文件）
-  - `.venv`：PyQt5 5.15.11（**v0.7 起不再需要 pyqtdarktheme**）
-  - `dist/RollingPlan.exe`：v0.8，37,841,798 字节，构建于 2026-09-15 21:20
-  - **真机验收（2026-09-15）**：Windows 上双击 exe 跑过，暗色主题文字对比度**无问题** ✅ —— 用户确认「暗色修复已检测无问题」。v0.8 的视觉部分至此验收通过，不再是悬着的项
-  - `build/` `dist/` `RollingPlan.spec` 是构建产物，`.gitignore` 里已忽略，只存在于验收副本
+- **验收副本**：`D:\0-task\rollingplan\`
+  - 与 git 仓库的源码/测试/文档逐一对齐（md5 校验过）
+  - `.venv`：PyQt5 5.15.11（v0.7 起不再需要 pyqtdarktheme）
+  - `dist/RollingPlan.exe`：v0.9 重建（见下方「构建」）
+  - `build/` `dist/` `RollingPlan.spec` 是构建产物，`.gitignore` 已忽略，只存在于验收副本
 
 ## 测试状态
 
-**6 个测试文件 / 总计 205 个断言全过，0 失败**（2026-09-15 21:44 于验收副本 .venv 实测）
+**6 个测试文件 / 总计 261 个断言全过，0 失败**（2026-09-15 22:05 于验收副本 .venv 实测）
 
 | 测试文件 | 断言 | 覆盖 |
 |----------|------|------|
 | `test_v2_2.py` | **33** | v0.3 核心逻辑（借指定 / 链式借 / 退回 / 多分类独立） |
 | `test_import_export_v04.py` | **49** | v0.4 导入/导出 + 结构校验 + 旧格式兼容 |
 | `test_reset_v04.py` | **24** | v0.4 重置进度（保留 plans/time_slots/start_date，多分类隔离） |
-| `test_theme_v05.py` | **38** | v0.7 QSS 主题（DARK_QSS / LIGHT_QSS 内容 + QSettings 持久化 + stderr=None 不崩） |
+| `test_theme_v05.py` | **38** | v0.7 QSS 主题 + QSettings 持久化 + stderr=None 不崩 |
 | `test_minimal_v06.py` | **32** | v0.6 极简 UI 折叠 + 主区居中 + 大按钮 |
-| `test_complete_v08.py` | **29** | v0.8 完成并滚动（借来的滚上来 / 没得借显示空 / completed_today 持久化 / 重置清空 / UI 点 3 个 ✓ 完成 后滚上来） |
+| `test_scroll_v09.py` | **85** | v0.9 队列上滚 / 不重复不丢 / 撤销完成 / 额外轮滚动 / 旧档迁移 / UI |
+
+`test_complete_v08.py` 已删（它断言的正是 v0.8 那段错的行为，重写成了 `test_scroll_v09.py`）。
 
 跑法：
 ```bash
 cd /mnt/d/0-task/rollingplan
-QT_QPA_PLATFORM=offscreen .venv/bin/python test_complete_v08.py
+QT_QPA_PLATFORM=offscreen .venv/bin/python test_scroll_v09.py
 ```
+
+## 构建（exe）
+
+WSL 侧可以直接调 Windows 的 Python 打包（已验证可用：Windows Python 3.13 + PyInstaller 6.22.3）：
+
+```bash
+cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --onefile --windowed --name RollingPlan --distpath dist --workpath build --specpath . rollingplan.py"
+```
+
+或者 Windows 上双击 `build_windows.bat`（它会先装依赖再打包）。
 
 ## 文件关键路径（WSL 视角）
 
@@ -133,45 +120,49 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python test_complete_v08.py
 | Git 仓库 | `/mnt/d/0_git/RollingPlan/` |
 | 验收副本 | `/mnt/d/0-task/rollingplan/` |
 | Python venv | `/mnt/d/0-task/rollingplan/.venv/` |
-| 主程序 | `/mnt/d/0_git/RollingPlan/rollingplan.py`（1869 行 / 68445 字节） |
+| 主程序 | `/mnt/d/0_git/RollingPlan/rollingplan.py`（2004 行 / 73674 字节） |
 | 构建脚本 | `/mnt/d/0_git/RollingPlan/build_windows.bat` |
 
-## 还没做的方向（按之前提的）
+## 还没做的方向
 
-1. **修 bug 9 项** ✅ 已全部落地（v0.2.1）
-2. **UX 打磨** ✅ v0.3 文案重写 + v0.5/v0.7 主题 + v0.6/v0.8 布局与对比度
-3. **打包/发布** ✅ `build_windows.bat` 就绪（v0.7 起无 pyqtdarktheme 依赖）；exe 构建 + 启动均验证通过
-4. **新功能**（v0.4 导入导出+重置、v0.5/v0.7 主题、v0.8 完成并滚动 已做；**未做**）：
+1. ~~修 bug~~ / ~~UX 打磨~~ / ~~打包发布~~ ✅ 都已落地
+2. **新功能**（未做）：
    - 快捷键（Ctrl+Enter 加一个 / Ctrl+D 今天完成 / Ctrl+Z 退回）
-   - 撤销栈
+   - 撤销栈（现在只能撤「完成」，且只限今天）
    - **布局重设计**（执行页只显示「今天 + 加一个/今天完成」）
    - **今日模式**（独立第三页）
-5. **代码重构**（未做）：单文件 1869 行可拆 `model.py` / `scheduler.py` / `editor.py` / `executor.py` / `theme.py`
+3. **代码重构**（未做）：单文件 2004 行可拆 `model.py` / `scheduler.py` / `editor.py` / `executor.py` / `theme.py`
+4. **待用户定**：`添加指定` 现在是「按时段名挑一条未来的计划」。v0.9 之后时段只是栏位，
+   这个入口按名字挑其实有点别扭 —— 要不要改成「从计划清单里挑一条提前安排」？
 
 ## 下次新会话该做什么
 
 **前置**：无需 push（已同步）。直接读本文件即可接着干。
 
-**选项 A**：从「还没做的方向 4」里挑下一个新功能
-- 快捷键（中等，改动小、见效快）
-- 布局重设计（中等）
-- 今日模式（中等）
-
-**选项 B**：重构分模块（读本文件即可，按 5 个模块拆 model/scheduler/editor/executor/theme）
-
-（原「选项 C：找用户确认真机暗色对比度」已于 2026-09-15 完成 —— 用户确认无问题。）
+**选项 A**：从「还没做的方向 2」里挑下一个新功能（快捷键改动最小、见效最快）
+**选项 B**：重构分模块（按 5 个模块拆 model/scheduler/editor/executor/theme）
+**选项 C**：先问用户 v0.9 在真机上用起来对不对（**headless 测试 = 261 断言全过，
+但视觉/手感没有真机确认** —— 参见下方备忘）
 
 ## 备忘
 
 - WSL 没 Qt 显示，要验证 GUI 只能用 `QT_QPA_PLATFORM=offscreen` 跑 headless
-- **headless 测过 ≠ 验收过**：涉及视觉的改动（颜色 / 字号 / 对比度 / 布局）headless 只能证明「不崩、属性对不对」，证明不了「看着对不对」。必须让用户真机跑一次，并把确认结果写回本文件的验收行 —— 否则下一轮会把它当成已验证的项继续往上盖
-- **QSS 与 widget 级 inline stylesheet 的关系**：widget 级 inline 优先于 QSS。所以**文字色绝对不要写在 widget 级 stylesheet 里**（v0.8 的暗色黑字事故就是这个），widget 级只写背景色 / 边框色
-- `borrowed_slots` / `completed_today` 是 JSON 字段名，重构时**不能改**（会破坏已存数据）
-- 内部 docstring 还保留"母计划/子计划/借"等术语（变量名 + 注释）— 这些不影响 UI
+- **headless 测过 ≠ 验收过**：涉及视觉 / 手感（颜色、字号、布局、点起来顺不顺）的改动，
+  headless 只能证明「不崩、属性对不对」。必须让用户真机跑一次，并把确认结果写回本文件的验收行
+- **QSS 与 widget 级 inline stylesheet**：widget 级 inline 优先。**文字色绝对不要写在 widget 级
+  stylesheet 里**（v0.8 的暗色黑字事故就是这个），widget 级只写背景色 / 边框色
+- **v0.9 的数据模型**：计划是队列，时段只是当天的栏位。
+  改 `PlanScheduler` 时别再把「时段名」当成计划的属性 —— 那是 v0.8 那套错误语义的残留
+- **JSON 字段名**：`borrowed_slots`（额外轮，仍是 `[[slot_name, plan, day, slot_idx], ...]` 结构）、
+  `archived` / `archived_base` / `consumed`（v0.9 新增）。重构时不能改这些键名
+- `from_dict` 会迁移 v0.8 的 `completed_today`（slot 序号 → 计划内容）；v0.8 时期自动借进来的
+  额外轮条目仍留在 `borrowed_slots` 里，用户可以用「退回」清掉
+- 内部 docstring 还保留「母计划 / 子计划 / 借」等术语（变量名 + 注释）—— 不影响 UI
 - 测试文件名 `test_v2_2.py` 是历史遗留（README 里写的），保留不动
-- v0.4 导入是**覆盖语义**（不是合并），`borrowed_slots` / `completed_today` 一并带过来
-- **WSL/DrvFS I/O 坑**：`dist/*.exe` 这类大文件在 WSL 里 rm 偶尔报 Input/output error，Windows 端 `del` 也可能拒绝访问。绕过办法：Windows 资源管理器手动删
-- **pyqtdarktheme 的坑（历史）**：必须 `--collect-all qdarktheme`，且 onefile 下 setup_theme() 仍可能静默失效 —— v0.7 直接自写 QSS 绕开了整个依赖
-- **auto 主题在 WSL offscreen 下 darkdetect 会卡**——测试只测 dark/light，不测 auto
-- **QGroupBox checkable 不可靠**（pyqtdarktheme 时代）——v0.6 起改用 QToolButton 手动控制 body widget 的 visibility
-- **isVisible() 检查时父链必须至少一层可见**：构造 widget 但不 show()，所有子 widget 的 isVisible() 都返回 False。测试时必须 widget.show() + processEvents()
+- v0.4 导入是**覆盖语义**（不是合并），额外轮 / 归档状态一并带过来
+- **WSL/DrvFS I/O 坑**：`dist/*.exe`（30+MB）在 WSL 里 rm 偶尔报 Input/output error，
+  Windows 端 `del` 也可能拒绝访问。绕过办法：Windows 资源管理器手动删
+- **auto 主题在 WSL offscreen 下 darkdetect 会卡** —— 测试只测 dark/light，不测 auto
+- **QGroupBox checkable 不可靠**（pyqtdarktheme 时代）—— v0.6 起改用 QToolButton 手动控制 visibility
+- **isVisible() 检查时父链必须至少一层可见**：构造 widget 但不 show()，子 widget 的
+  isVisible() 都是 False。测试必须 widget.show() + processEvents()

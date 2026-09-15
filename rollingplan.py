@@ -27,6 +27,19 @@ from PyQt5.QtGui import QFont
 
 # ============== 数据模型 ==============
 
+def _pending_of(p):
+    """待办队列：plans 去掉已完成的（按内容移除，保持原顺序）
+
+    v0.9：完成用「计划内容」记账，不用下标 —— 这样编辑计划列表、
+    跨天、上滚之后都不会指错行。
+    """
+    rem = list(p.plans)
+    for a in getattr(p, "archived", []) or []:
+        if a in rem:
+            rem.remove(a)
+    return rem
+
+
 class ParentPlan:
     """单个母计划"""
 
@@ -36,8 +49,11 @@ class ParentPlan:
         self.time_slots = []
         self.start_date = QDate.currentDate()
         self.current_day = 0
-        self.borrowed_slots = []  # [[slot_name, plan, day, slot_idx], ...] 按借的顺序
-        self.completed_today = []  # v0.8: 今天已完成的 slot_idx 列表（推进到下一天时清空）
+        self.borrowed_slots = []   # 额外轮：[[slot_name, plan, day, slot_idx], ...] 按加进来的顺序
+        # ---- v0.9 滚动状态 ----
+        self.archived = []         # 已完成的计划内容（累计；从队列里移除）
+        self.archived_base = 0     # 进入当前天时 len(archived) 的快照 →「今天完成的」= archived[base:]
+        self.consumed = 0          # 当前天在队列（plans - archived）里的起点下标
 
     def to_dict(self):
         return {
@@ -47,7 +63,9 @@ class ParentPlan:
             "start_date": self.start_date.toString("yyyy-MM-dd"),
             "current_day": self.current_day,
             "borrowed_slots": self.borrowed_slots,
-            "completed_today": getattr(self, "completed_today", []),  # v0.8
+            "archived": self.archived,
+            "archived_base": self.archived_base,
+            "consumed": self.consumed,
         }
 
     def from_dict(self, d):
@@ -59,13 +77,44 @@ class ParentPlan:
             self.start_date = QDate.fromString(sd, "yyyy-MM-dd")
         self.current_day = d.get("current_day", 0)
         self.borrowed_slots = d.get("borrowed_slots", [])
-        self.completed_today = d.get("completed_today", [])  # v0.8
+        self.archived = [a for a in (d.get("archived") or []) if isinstance(a, str)]
+        self.archived_base = d.get("archived_base", 0) or 0
+        self.consumed = d.get("consumed", 0) or 0
+        # v0.8 旧存档迁移：completed_today 里存的是「当前天的 slot 序号」，转成计划内容
+        legacy = d.get("completed_today")
+        if isinstance(legacy, list) and legacy and all(isinstance(x, int) for x in legacy):
+            spd = sum(s.get("count", 1) for s in self.time_slots) or 1
+            for slot_idx in sorted(set(legacy)):
+                idx = self.current_day * spd + slot_idx
+                if 0 <= idx < len(self.plans):
+                    self.archived.append(self.plans[idx])
+        self.normalize()
+
+    def normalize(self):
+        """把状态收敛到合法范围（幂等）。读档 / 改计划之后都调一次。"""
+        if not isinstance(self.archived, list):
+            self.archived = []
+        self.archived = [a for a in self.archived if isinstance(a, str)]
+        if not isinstance(self.borrowed_slots, list):
+            self.borrowed_slots = []
+        try:
+            self.archived_base = int(self.archived_base or 0)
+        except (TypeError, ValueError):
+            self.archived_base = 0
+        self.archived_base = min(max(self.archived_base, 0), len(self.archived))
+        try:
+            self.consumed = int(self.consumed or 0)
+        except (TypeError, ValueError):
+            self.consumed = 0
+        self.consumed = min(max(self.consumed, 0), len(_pending_of(self)))
 
     def reset_progress(self):
         """v0.4：重置进度。plans/time_slots/start_date 不变。"""
         self.current_day = 0
         self.borrowed_slots = []
-        self.completed_today = []  # v0.8
+        self.archived = []
+        self.archived_base = 0
+        self.consumed = 0
 
 
 class PlanData:
@@ -236,16 +285,28 @@ class PlanData:
 # ============== 核心调度 ==============
 
 class PlanScheduler:
-    """母计划调度器"""
+    """母计划调度器
+
+    v0.9 模型：计划是一列待办队列，时段是「当天承装队列的栏位」。
+
+    - 队列 = plans 去掉已完成（archived）的部分
+    - 当天显示 = 队列里属于今天的 + 额外轮滚进来的 + 后面顺位补上的，
+      一共 slots_per_day() 行；时段名只是行号，不代表计划本身
+    - 完成一条 = 从队列里拿走（归档），后面的整体上滚一格
+    - 额外轮 = 点「加一个」从未来拉进来的计划，排在当天的行后面；
+      当天有空行时先由它们顶上
+    """
 
     def __init__(self, parent: ParentPlan):
         self.p = parent
+
+    # ---------------- 基础 ----------------
 
     def slots_per_day(self):
         return sum(s.get("count", 1) for s in self.p.time_slots)
 
     def _expand_slots(self):
-        """把时间段展开成 [(slot_name, plan_idx), ...] 的列表"""
+        """把时间段展开成 [(slot_name, idx), ...] 的列表"""
         result = []
         idx = 0
         for slot in self.p.time_slots:
@@ -254,133 +315,166 @@ class PlanScheduler:
                 idx += 1
         return result
 
+    def pending(self):
+        """待办队列（已完成的不在里面）"""
+        return _pending_of(self.p)
+
+    def done_today(self):
+        """今天已完成的计划内容（按完成顺序）"""
+        base = getattr(self.p, "archived_base", 0) or 0
+        return list(getattr(self.p, "archived", [])[base:])
+
+    def total_done(self):
+        return len(getattr(self.p, "archived", []) or [])
+
+    def extra_plans(self):
+        """额外轮的计划内容（按加进来的顺序）"""
+        out = []
+        for entry in self.p.borrowed_slots:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                out.append(entry[1])
+        return out
+
+    # ---------------- 当天显示 ----------------
+
+    def today_state(self):
+        """把今天的显示一次算清（UI 和后续逻辑共用）
+
+        rows        [(slot_name, plan|None), ...]  今天的行（长度 = slots_per_day）
+        promoted    额外轮里已经滚到今天的行上的那几条（不在额外轮区重复显示）
+        extra_left  额外轮里还没滚上来的（UI「额外安排」区显示这些）
+        queue_used  今天从队列里取走了几条（进下一天时 consumed 就步进这么多）
+        extras      额外轮全部内容
+        """
+        spd = self.slots_per_day()
+        if spd == 0:
+            return {"rows": [], "promoted": [], "extra_left": [], "queue_used": 0, "extras": []}
+
+        slots = self._expand_slots()
+        q = self.pending()
+        start = min(max(self.p.consumed, 0), len(q))
+        head = q[start:start + spd]           # 今天占的这 spd 格，按队列顺序
+        rows = [(slots[i][0], head[i] if i < len(head) else None) for i in range(spd)]
+
+        # 额外轮里那些已经出现在今天的行上的 = 滚上来了，额外轮区不再重复显示
+        extras = self.extra_plans()
+        not_yet = list(head)
+        promoted, extra_left = [], []
+        for e in extras:
+            if e in not_yet:
+                not_yet.remove(e)
+                promoted.append(e)
+            else:
+                extra_left.append(e)
+
+        return {
+            "rows": rows,
+            "promoted": promoted,
+            "extra_left": extra_left,
+            "queue_used": len(head),
+            "extras": extras,
+        }
+
     def get_day_plans(self, day_index):
-        """第 day_index 天的计划切片 [(slot_name, plan), ...]
-        v0.8: 当前天（current_day）的已归档 slot（completed_today）会优先用
-        borrowed_slots 里同 slot_name 的 plan 替代（滚动效果：下一个 plan 滚入），
-        否则返回 None（隐藏）。
+        """第 day_index 天的显示切片 [(slot_name, plan|None), ...]
+
+        - day_index == current_day：今天（含上滚 / 额外轮顶进来的）
+        - day_index >  current_day：按现在的状态往后推（计划日历预览用）
+        - day_index <  current_day：已经过去的天，回不去了 → 空
         """
         spd = self.slots_per_day()
         if spd == 0:
             return []
+        if day_index < self.p.current_day:
+            return []
+        if day_index == self.p.current_day:
+            return self.today_state()["rows"]
+
         slots = self._expand_slots()
-        start = day_index * spd
-        plans_slice = self.p.plans[start:start + spd]
-
-        # v0.8: 当前天的已归档 slot 用 borrow 替代（滚动：下一个 plan 滚入）
-        completed = set(getattr(self.p, "completed_today", [])) if day_index == self.p.current_day else set()
-        # 按 borrowed 顺序收集每个 slot_name 的 plan 池
-        # 完成 slot_idx 时调 borrow_slot(sname) 借一条进池 → 下一个 plan 滚入
-        borrowed_by_name = {}  # {slot_name: [plan, ...]}
-        if completed:
-            for entry in self.get_borrowed_slots_with_meta():
-                slot_name, plan, _, _ = entry
-                borrowed_by_name.setdefault(slot_name, []).append(plan)
-
-        result = []
-        for i, (sname, sidx) in enumerate(slots):
-            if i in completed:
-                # 已归档：从 borrowed 池取一个填入（下一个 plan 滚上）
-                if borrowed_by_name.get(sname):
-                    result.append((sname, borrowed_by_name[sname].pop(0)))
-                else:
-                    result.append((sname, None))
-                continue
-            if i < len(plans_slice):
-                result.append((sname, plans_slice[i]))
-            else:
-                result.append((sname, None))
-        return result
+        q = self.pending()
+        st = self.today_state()
+        start = min(max(self.p.consumed, 0), len(q)) + st["queue_used"]
+        start += (day_index - self.p.current_day - 1) * spd
+        rows = []
+        for i in range(spd):
+            k = start + i
+            rows.append((slots[i][0], q[k] if 0 <= k < len(q) else None))
+        return rows
 
     def get_calendar(self):
+        """计划日历：从今天开始往后（过去的天不再回溯）"""
         if not self.p.start_date:
             return []
         spd = self.slots_per_day()
-        if spd == 0 or not self.p.plans:
+        if spd == 0:
             return []
+        q = self.pending()
+        st = self.today_state()
+        rest = max(0, len(q) - (min(max(self.p.consumed, 0), len(q)) + st["queue_used"]))
+        n_days = 1 + (rest + spd - 1) // spd
+        cal = []
+        for k in range(n_days):
+            d = self.p.start_date.addDays(self.p.current_day + k)
+            cal.append((d, self.get_day_plans(self.p.current_day + k)))
+        return cal
+
+    def raw_calendar(self):
+        """制定页预览用：按原始计划表整段铺开（不看进度，只看计划怎么分）"""
+        spd = self.slots_per_day()
+        if not self.p.start_date or spd == 0 or not self.p.plans:
+            return []
+        slots = self._expand_slots()
         total_days = (len(self.p.plans) + spd - 1) // spd
         cal = []
         for i in range(total_days):
             d = self.p.start_date.addDays(i)
-            cal.append((d, self.get_day_plans(i)))
+            slice_ = self.p.plans[i * spd:(i + 1) * spd]
+            rows = [(slots[j][0], slice_[j] if j < len(slice_) else None) for j in range(spd)]
+            cal.append((d, rows))
         return cal
 
-    def _all_slot_positions(self):
-        """所有时间段位置: [(day_index, slot_name, plan_idx), ...]"""
-        spd = self.slots_per_day()
-        if spd == 0 or not self.p.plans:
-            return []
-        result = []
-        day_count = (len(self.p.plans) + spd - 1) // spd
-        for day in range(day_count):
-            day_plans = self.get_day_plans(day)
-            for i, (sname, plan) in enumerate(day_plans):
-                result.append((day, sname, i, plan))
-        return result
-
-    def _borrowed_set(self):
-        """已被借出的 (day, slot_idx) 集合"""
-        result = set()
-        for entry in self.p.borrowed_slots:
-            if len(entry) >= 4:
-                _, _, day, slot_idx = entry
-                result.add((day, slot_idx))
-        return result
-
-    def get_borrowed_slots_with_meta(self):
-        """额外轮完整信息：[(slot_name, plan, day, slot_idx), ...]"""
-        return [tuple(b) for b in self.p.borrowed_slots if len(b) >= 4]
-
-    def get_extra_plans(self):
-        """额外轮展示：[(slot_name, plan), ...]"""
-        result = []
-        for entry in self.get_borrowed_slots_with_meta():
-            slot_name, plan, day, slot_idx = entry
-            result.append((slot_name, plan))
-        return result
+    # ---------------- 额外轮（加一个 / 添加指定 / 退回） ----------------
 
     def _future_slot_positions(self):
-        """未来可借的位置（day > current_day）:
-        [(day, slot_name, slot_idx, plan), ...]
-        按 (day, slot_idx) 顺序
-        排除已被借出的位置"""
+        """还没进今天、也没进额外轮的位置：
+        [(day, slot_name, slot_idx, plan), ...]，按队列顺序"""
         spd = self.slots_per_day()
-        if spd == 0 or not self.p.plans:
+        if spd == 0:
             return []
-        borrowed = self._borrowed_set()
+        q = self.pending()
+        st = self.today_state()
+        start = min(max(self.p.consumed, 0), len(q)) + st["queue_used"] + len(st["extras"])
+        slots = self._expand_slots()
         result = []
-        day_count = (len(self.p.plans) + spd - 1) // spd
-        for day in range(self.p.current_day + 1, day_count):
-            day_plans = self.get_day_plans(day)
-            for i, (sname, plan) in enumerate(day_plans):
-                if plan is not None and (day, i) not in borrowed:
-                    result.append((day, sname, i, plan))
+        for k in range(start, len(q)):
+            off = k - self.p.consumed
+            day = self.p.current_day + (off // spd if off >= 0 else 0)
+            slot_idx = off % spd
+            result.append((day, slots[slot_idx][0], slot_idx, q[k]))
         return result
 
     def can_borrow_slot(self, slot_name):
-        """能否借指定时间段：从未来位置里找同名未借的"""
-        for day, sname, sidx, plan in self._future_slot_positions():
+        """能否加指定时段：后面还有坐在这个位置上的计划"""
+        for _, sname, _, _ in self._future_slot_positions():
             if sname == slot_name:
                 return True
         return False
 
     def can_borrow_next(self):
-        """能否借下一个（任意时段）：未来还有未借的计划即可"""
+        """能否加一个：后面还有没安排的计划"""
         return len(self._future_slot_positions()) > 0
 
     def borrow_next(self):
-        """借下一个：未来最早的一个未借计划（不分时段名）
-        借出时拷贝 plan 字符串，防止后续编辑子计划影响额外轮内容"""
+        """加一个：把队列里下一个还没安排的拉进额外轮"""
         positions = self._future_slot_positions()
         if not positions:
             return False
         day, sname, sidx, plan = positions[0]
         self.p.borrowed_slots.append([sname, plan, day, sidx])
-        self.save_parent()
         return True
 
     def available_borrow_names(self):
-        """去重后所有当前可借的时间段名"""
+        """去重后所有还能加的位置名"""
         names = []
         for _, sname, _, _ in self._future_slot_positions():
             if sname not in names:
@@ -388,82 +482,90 @@ class PlanScheduler:
         return names
 
     def borrow_slot(self, slot_name):
-        """借指定时间段：从未来位置里找同名未借的最近一个
-        借出时拷贝 plan 字符串，防止后续编辑子计划影响额外轮内容"""
+        """添加指定：把后面坐在这个位置上的最近一条拉进额外轮"""
         for day, sname, sidx, plan in self._future_slot_positions():
             if sname == slot_name:
                 self.p.borrowed_slots.append([sname, plan, day, sidx])
-                self.save_parent()
                 return True
         return False
 
     def return_last_borrowed(self):
-        """向后滚动：把额外轮最后 1 个推回去"""
+        """退回：把额外轮最后 1 个推回去"""
         if not self.p.borrowed_slots:
             return False
         self.p.borrowed_slots.pop()
-        self.save_parent()
         return True
 
     def can_return(self):
         return len(self.p.borrowed_slots) > 0
 
+    # ---------------- 完成 / 撤销 ----------------
+
     def complete_today_slot(self, slot_idx):
-        """v0.8: 归档今天某个 slot 的计划，下一个同 slot_name 的 plan 自动滚入。
-        - 把 (current_day, slot_idx) 加入 completed_today
-        - 立刻 borrow_slot(sname) 从未来取下一个
-        - 如果没的可借，该 slot 在 UI 上变"空"
+        """完成今天某一行：把它归档（从队列里拿走），后面的整体上滚一格
+
+        v0.9：不再去「借同名字段的下一条」（那会把第二天的计划拉到今天），
+        而是把这条从队列里移除 —— 队列一变，今天和后面几天的显示自然上移。
         """
-        # 找 slot_name
-        day_plans = self.get_day_plans(self.p.current_day)
-        if slot_idx < 0 or slot_idx >= len(day_plans):
+        rows = self.today_state()["rows"]
+        if slot_idx < 0 or slot_idx >= len(rows):
             return False
-        sname = day_plans[slot_idx][0]
-        # 标记完成
-        if "completed_today" not in self.p.__dict__:
-            self.p.completed_today = []
-        if slot_idx not in self.p.completed_today:
-            self.p.completed_today.append(slot_idx)
-        # 立刻借同 slot_name 的下一个 plan 滚入
-        self.borrow_slot(sname)
-        self.save_parent()
+        plan = rows[slot_idx][1]
+        if not plan:
+            return False
+        self.p.archived.append(plan)
+        # 这条本来就是额外轮顶上来的话，额外轮里那条也算做完了
+        self.p.borrowed_slots = [
+            e for e in self.p.borrowed_slots
+            if not (isinstance(e, (list, tuple)) and len(e) >= 2 and e[1] == plan)
+        ]
+        self.p.normalize()
         return True
 
     def can_complete_today_slot(self, slot_idx):
-        """能否归档今天某个 slot（有 plan 就能归档）"""
-        day_plans = self.get_day_plans(self.p.current_day)
-        if slot_idx < 0 or slot_idx >= len(day_plans):
+        rows = self.today_state()["rows"]
+        if slot_idx < 0 or slot_idx >= len(rows):
             return False
-        _, plan = day_plans[slot_idx]
-        return plan is not None
+        return rows[slot_idx][1] is not None
+
+    def can_undo_complete(self):
+        """今天有完成过的就能撤销（过去几天的不能撤）"""
+        return len(self.done_today()) > 0
+
+    def undo_complete(self):
+        """撤销今天最后一次「完成」：把它放回队列原来的位置"""
+        if not self.can_undo_complete():
+            return False
+        self.p.archived.pop()
+        self.p.normalize()
+        return True
+
+    # ---------------- 其他 ----------------
 
     def save_parent(self):
         pass  # 占位，实际由外部 PlanData.save() 触发
 
     def all_consumed(self):
-        """所有计划是否都已用完：
-        条件 = 当前天所有时间段都为空 + 没额外轮可借 + 当前天不能继续往后滚
-        简化：当前天无内容 + 没额外轮 + 后面也没可借的"""
-        day_plans = self.get_day_plans(self.p.current_day)
-        day_has_content = any(p is not None for _, p in day_plans)
-
-        # 检查还能不能借任何时间段
-        any_can_borrow = False
-        for slot in self.p.time_slots:
-            if self.can_borrow_slot(slot["name"]):
-                any_can_borrow = True
-                break
-
-        return not day_has_content and not any_can_borrow and not self.can_return()
+        """全部结束：今天没有能显示的行 + 没有额外轮 + 后面也没有了"""
+        if any(p is not None for _, p in self.today_state()["rows"]):
+            return False
+        if self.extra_plans():
+            return False
+        return not self.can_borrow_next()
 
     def get_progress(self):
-        """进度：已分配的槽位数 / 总槽位数
-        已分配 = (current_day + 1) * spd 但不超过总计划数"""
+        """进度：已推进到 / 总条数
+
+        已推进 = 当前天窗口在原始计划表里的结束位置 + 今天完成的条数
+        （所以点一次「完成」，数字就往前走一格）
+        """
         spd = self.slots_per_day()
         if spd == 0:
             return 0, 0
-        consumed = min((self.p.current_day + 1) * spd, len(self.p.plans))
-        return consumed, len(self.p.plans)
+        total = len(self.p.plans)
+        qlen = max(0, total - self.total_done())
+        advance = min(max(self.p.consumed, 0), qlen) + spd
+        return min(advance + self.total_done(), total), total
 
 
 # ============== 写入界面 ==============
@@ -1039,7 +1141,7 @@ class PlanEditor(QWidget):
         if not p.time_slots:
             QMessageBox.warning(self, "提示", "请先添加时段")
             return
-        cal = self.scheduler.get_calendar()
+        cal = self.scheduler.raw_calendar()
         lines = [f"📅 【{p.name}】计划预览（共 {len(cal)} 天）", "=" * 40]
         for i, (d, plans) in enumerate(cal):
             lines.append(f"\n第{i+1}天 ({d.toString('MM-dd ddd')}):")
@@ -1116,6 +1218,12 @@ class PlanExecutor(QWidget):
         self.progress_label.setFont(QFont("Microsoft YaHei", 13))
         # 不设 inline color — QSS 接管（dark 下浅灰、light 下深色都能看见）
         layout.addWidget(self.progress_label)
+
+        # v0.9: 今天已完成（归档）了的计划
+        self.done_label = QLabel()
+        self.done_label.setAlignment(Qt.AlignCenter)
+        self.done_label.setFont(QFont("Microsoft YaHei", 11))
+        layout.addWidget(self.done_label)
 
         # ============ 今天：冷调主区 ============
         # 时段少时居中显示，时段多时自然撑开
@@ -1219,17 +1327,24 @@ class PlanExecutor(QWidget):
 
     def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False,
                        slot_idx=None, show_complete=False):
-        """添加一行时段。is_extra=True 时是"额外安排"，左边框绿色 + 浅绿背景。
-        v0.8: slot_idx + show_complete 时，行末加 ✓ 完成按钮（归档并滚动）。
+        """添加一行。is_extra=True 时是「额外安排」，左边框绿色 + 浅绿背景。
+
+        v0.9：
+        - 额外轮的行不带时段名 —— 时段只是当天承装计划的栏位，不是计划本身的属性
+        - slot_idx + show_complete 时，行末加 ✓ 完成按钮（归档并上滚）
+
         文字色由 QSS 接管（不设 inline color），避免深色主题下黑字看不见。
         """
         row = QHBoxLayout()
-        prefix = "⤴ " if is_extra else "  "
         bg = "#E8F5E9" if is_extra else None
         border_color = "#2E7D32" if is_extra else "#1E88E5"
 
-        slot_label = QLabel(f"{prefix}{slot_name}:")
-        slot_label.setMinimumWidth(120 if is_extra else 80)
+        if is_extra:
+            slot_label = QLabel("⤴")
+            slot_label.setMinimumWidth(30)
+        else:
+            slot_label = QLabel(f"  {slot_name}:")
+            slot_label.setMinimumWidth(80)
         slot_label.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         row.addWidget(slot_label)
 
@@ -1281,8 +1396,16 @@ class PlanExecutor(QWidget):
         consumed, total = self.scheduler.get_progress()
         self.progress_label.setText(f"进度：{consumed} / {total}")
 
+        # 今天已完成（归档）
+        done_today = self.scheduler.done_today()
+        if done_today:
+            self.done_label.setText("🗂 今天已完成：" + "、".join(done_today))
+        else:
+            self.done_label.setText("")
+
         # 今天
-        day_plans = self.scheduler.get_day_plans(p.current_day)
+        st = self.scheduler.today_state()
+        day_plans = st["rows"]
         if not day_plans:
             lbl = QLabel("今天没有安排")
             lbl.setAlignment(Qt.AlignCenter)
@@ -1292,19 +1415,21 @@ class PlanExecutor(QWidget):
                 self._add_slot_row(self.day_layout, sname, plan, is_extra=False,
                                    slot_idx=sidx, show_complete=True)
 
-        # 额外安排
-        extra = self.scheduler.get_extra_plans()
+        # 额外安排（没滚进今天的那些）
+        extra = st["extra_left"]
         if not extra:
             lbl = QLabel("还没有额外安排")
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet("font-style: italic;")
             self.extra_layout.addWidget(lbl)
         else:
-            for sname, plan in extra:
-                self._add_slot_row(self.extra_layout, sname, plan, is_extra=True)
+            for plan in extra:
+                self._add_slot_row(self.extra_layout, None, plan, is_extra=True)
 
-        # 按钮启用状态
-        self.return_btn.setEnabled(self.scheduler.can_return())
+        # 按钮启用状态 + 文案
+        can_undo = self.scheduler.can_undo_complete()
+        self.return_btn.setEnabled(can_undo or self.scheduler.can_return())
+        self.return_btn.setText("↶ 撤销完成" if can_undo else "⤴ 退回")
         self.add_next_btn.setEnabled(self.scheduler.can_borrow_next())
         self.add_specific_btn.setEnabled(bool(self.scheduler.available_borrow_names()))
 
@@ -1313,21 +1438,24 @@ class PlanExecutor(QWidget):
     def refresh_calendar_preview(self):
         p = self.data.current_parent
         cal = self.scheduler.get_calendar()
-        spd = self.scheduler.slots_per_day()
-        borrowed_set = set()
-        for entry in self.scheduler.get_borrowed_slots_with_meta():
-            _, _, day, slot_idx = entry
-            borrowed_set.add((day, slot_idx))
+        st = self.scheduler.today_state()
+        done_today = self.scheduler.done_today()
 
         lines = []
+        head = f"已归档 {self.scheduler.total_done()} 条"
+        if done_today:
+            head += f"（今天：{'、'.join(done_today)}）"
+        lines.append(head)
+        lines.append("")
+
         for i, (d, plans) in enumerate(cal):
-            marker = "👉" if i == p.current_day else "  "
-            extra_marker = f" [+{len(self.scheduler.get_extra_plans())} 额外]" if i == p.current_day and self.scheduler.get_extra_plans() else ""
-            lines.append(f"{marker} 第{i+1}天 ({d.toString('MM-dd ddd')}){extra_marker}")
-            for j, (sname, plan) in enumerate(plans):
-                b_mark = "📤" if (i, j) in borrowed_set else "  "
+            day_no = p.current_day + i + 1
+            marker = "👉" if i == 0 else "  "
+            extra_marker = f" [+{len(st['extra_left'])} 额外]" if i == 0 and st["extra_left"] else ""
+            lines.append(f"{marker} 第{day_no}天 ({d.toString('MM-dd ddd')}){extra_marker}")
+            for sname, plan in plans:
                 content = plan if plan else "·"
-                lines.append(f"  {b_mark} {sname}: {content}")
+                lines.append(f"        {sname}: {content}")
             lines.append("")
 
         self.calendar_area.setText("\n".join(lines))
@@ -1361,12 +1489,17 @@ class PlanExecutor(QWidget):
                 QMessageBox.warning(self, "提示", f"无法添加「{name}」")
 
     def on_return(self):
-        if self.scheduler.return_last_borrowed():
+        """退回：优先撤销今天最近一次「完成」，没有了再退额外轮最后一个"""
+        if self.scheduler.can_undo_complete():
+            ok = self.scheduler.undo_complete()
+        else:
+            ok = self.scheduler.return_last_borrowed()
+        if ok:
             self.data.save()
             self.refresh()
 
     def on_complete_slot(self, slot_idx):
-        """v0.8: 归档今天某个 slot，归档后下一个同 slot_name plan 自动滚入"""
+        """v0.9: 归档今天这一格（从队列里拿走），后面的整体上滚一格"""
         if self.scheduler.complete_today_slot(slot_idx):
             self.data.save()
             self.refresh()
@@ -1396,8 +1529,10 @@ class PlanExecutor(QWidget):
                 return
 
         p.current_day += 1
-        p.borrowed_slots = []  # 切天时清空额外安排
-        p.completed_today = []  # v0.8: 切天时清空今天的归档
+        p.consumed += scheduler.today_state()["queue_used"]  # 今天的队列走到哪了
+        p.archived_base = len(p.archived)                    # 「今天完成的」重新从 0 算
+        p.borrowed_slots = []                                # 切天时清空额外安排
+        p.normalize()
         self.data.save()
         self.refresh()
 

@@ -4,7 +4,20 @@
 
 ## 版本
 
-### v0.8（当前）
+### v0.9（当前）
+- **重写「完成并滚动」的语义**（v0.8 的实现是错的）：
+  - v0.8 的行为：点「早1 完成」→ 它去**借第二天同名的早4** 顶上。结果 早 变成 4，任务4 同时出现在第 1 天和第 2 天，再点一次几乎没反应但背地里又借一条。
+  - v0.9 的行为：计划是一列**待办队列**，时段只是「当天承装队列的栏位」。完成 = 把这条从队列里拿走（归档），后面的整体上滚一格 → 早2 中3 晚4，第 2 天跟着变成 5/6/7（不重复、不丢）。
+  - 新增 `today_state()`：一次算清今天的行 / 额外轮 / 队列走到哪
+  - 新增 `undo_complete()` / `can_undo_complete()`：**「退回」变成一键撤销今天最近一次完成**；今天没完成可撤时，才退额外轮最后一个（按钮文案会跟着变：`↶ 撤销完成` / `⤴ 退回`）
+  - 进度跟着走：完成一条，`进度` +1
+  - 顶部加一行「🗂 今天已完成：…」，归档了什么看得见
+- **额外轮不再带时段名**：时段只是当天的栏位，不是计划本身的属性。点「加一个」就是把队列里下一个拉进额外轮（只显示计划内容）；当天有空行时它会滚上来，不在额外轮区重复显示
+- **状态字段变了**（`archived` / `archived_base` / `consumed` 取代 v0.8 的 `completed_today`）；`from_dict` 会把 v0.8 的旧存档自动迁移过来
+- 制定页的「计划预览」改用 `raw_calendar()`（铺开看计划怎么分，不受进度影响）；执行页的「计划日历」从今天起往后看
+- 新增 `test_scroll_v09.py`：85 断言
+
+### v0.8
 - **暗色主题文字对比度修复**：
   - 问题：暗色下槽位的计划名渲染成黑字（非额外安排槽位被硬写 `color: black`），进度标签的 `gray`（`#808080`）在黑底上不可见，toolbutton / label 上一堆 inline `color: #888` 也和 QSS 打架
   - 修法：删掉**所有** widget 级硬编码文字色 —— 文字色统一交给 QSS（DARK_QSS `#cccccc` / LIGHT_QSS `#222222`），widget 级只保留背景色和边框色
@@ -89,8 +102,9 @@
 - **执行**：当天时间段展示 + 额外轮（借来的，按借的顺序显示）
 - **借指定时间段**：弹对话框选择"今天借哪个时间段"，会从最靠前的未借走的同名槽位借
 - **链式借**：明天借空了就从后天借
-- **退回**：把额外轮最后 1 个推回去
-- **完成并滚动**：今天某个时段点「✓ 完成」，当前计划归档、未来同名时段的下一条滚上来
+- **退回**：把额外轮最后 1 个推回去（今天有完成过时，「退回」先用来撤销完成）
+- **完成并滚动**：今天某个时段点「✓ 完成」，这条计划归档、后面的整体上滚一格（额外轮的会跟着滚上来）
+- **时段只是栏位**：时段名只表示「当天第几格」，不代表计划本身；额外轮里的计划不带时段名
 - **主题**：暗色 / 亮色 / 跟随系统，自写 QSS，实时切换并跨会话记住
 - **数据存储**：使用 QSettings 嵌入式保存
 
@@ -117,13 +131,15 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 ## 核心逻辑
 
 见 `PlanScheduler` 类（`rollingplan.py`）：
-- `get_day_plans(day_index)`：取第 N 天计划切片
-- `get_extra_plans()`：取额外轮（按借的顺序）
-- `_future_slot_positions()`：未来可借的位置（day > current_day）
-- `can_borrow_slot(slot_name)` / `borrow_slot(slot_name)`：借指定时间段
-- `return_last_borrowed()`：退回最后借的
-- `complete_today_slot(slot_idx)`：把今天的某个槽位标记为已归档，并借来未来同名时段的下一条（「完成并滚动」）
-- `can_complete_today_slot(slot_idx)`：上面这个能不能点
+- `pending()`：待办队列（`plans` 去掉已完成的）
+- `today_state()`：今天的行 / 额外轮 / 队列走到哪，一次算清（UI 和逻辑共用）
+- `get_day_plans(day_index)`：取第 N 天的显示切片
+- `get_calendar()` / `raw_calendar()`：执行页日历（从今天往后） / 制定页预览（整段铺开）
+- `complete_today_slot(slot_idx)`：完成这一格 → 归档 + 队列上滚一格
+- `undo_complete()` / `can_undo_complete()`：撤销今天最近一次完成
+- `borrow_next()` / `borrow_slot(name)`：加一个 / 添加指定（进额外轮）
+- `return_last_borrowed()`：退回额外轮最后一个
+- `get_progress()`：进度（已推进 / 总数，完成的也算）
 - `all_consumed()`：判断全部完成
 
 ## 测试
@@ -134,10 +150,10 @@ python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
 python test_reset_v04.py            # v0.4 重置进度（24 断言）
 python test_theme_v05.py            # v0.7 QSS 主题（38 断言）
 python test_minimal_v06.py          # v0.6 极简 UI 折叠（32 断言）
-python test_complete_v08.py         # v0.8 完成并滚动（29 断言）
+python test_scroll_v09.py           # v0.9 完成并滚动 / 撤销 / 额外轮（85 断言）
 ```
 
-共 6 个文件 / 205 断言，全过。
+共 6 个文件 / 261 断言，全过。
 
 覆盖：
 - 单母计划 + 借指定时间段
