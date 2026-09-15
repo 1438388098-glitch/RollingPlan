@@ -1,8 +1,8 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-15 21:45
+> **最后更新**：2026-09-15 21:47
 > **会话位置**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **远程**：`origin/main` == `main` == `04f6393`（13 commits 已于 2026-09-15 21:40 push，无未推提交）
+> **远程**：`origin/main` == `main` == `10eea61`（v0.8 + 文档同步，已全部 push，无未推提交）
 
 ## 项目一句话
 
@@ -104,6 +104,7 @@ PyQt5 桌面应用。**v0.8 已完成**：「日常计划管理」——多分�
   - 与 git 仓库的文件已逐一对齐（rollingplan.py / README.md / STATE.md / build_windows.bat / 6 个测试文件）
   - `.venv`：PyQt5 5.15.11（**v0.7 起不再需要 pyqtdarktheme**）
   - `dist/RollingPlan.exe`：v0.8，37,841,798 字节，构建于 2026-09-15 21:20
+  - **真机验收（2026-09-15）**：Windows 上双击 exe 跑过，暗色主题文字对比度**无问题** ✅ —— 用户确认「暗色修复已检测无问题」。v0.8 的视觉部分至此验收通过，不再是悬着的项
   - `build/` `dist/` `RollingPlan.spec` 是构建产物，`.gitignore` 里已忽略，只存在于验收副本
 
 ## 测试状态
@@ -158,11 +159,12 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python test_complete_v08.py
 
 **选项 B**：重构分模块（读本文件即可，按 5 个模块拆 model/scheduler/editor/executor/theme）
 
-**选项 C**：先找用户确认 v0.8 的暗色对比度修复在真机（Windows 上双击 exe）是否达到预期 —— v0.8 的改动只跑过 headless 测试，视觉部分没有真机确认
+（原「选项 C：找用户确认真机暗色对比度」已于 2026-09-15 完成 —— 用户确认无问题。）
 
 ## 备忘
 
 - WSL 没 Qt 显示，要验证 GUI 只能用 `QT_QPA_PLATFORM=offscreen` 跑 headless
+- **headless 测过 ≠ 验收过**：涉及视觉的改动（颜色 / 字号 / 对比度 / 布局）headless 只能证明「不崩、属性对不对」，证明不了「看着对不对」。必须让用户真机跑一次，并把确认结果写回本文件的验收行 —— 否则下一轮会把它当成已验证的项继续往上盖
 - **QSS 与 widget 级 inline stylesheet 的关系**：widget 级 inline 优先于 QSS。所以**文字色绝对不要写在 widget 级 stylesheet 里**（v0.8 的暗色黑字事故就是这个），widget 级只写背景色 / 边框色
 - `borrowed_slots` / `completed_today` 是 JSON 字段名，重构时**不能改**（会破坏已存数据）
 - 内部 docstring 还保留"母计划/子计划/借"等术语（变量名 + 注释）— 这些不影响 UI
