@@ -1,75 +1,107 @@
 """
-RollingPlan — 计划自动滚动程序
+RollingPlan v0.2 — 母计划 + 借指定时间段 + 链式借
 
-功能：
-1. 写入界面：输入计划列表 + 自定义时间段 + 开始日期，自动生成计划表
-2. 执行界面：显示当天时间段，提供额外轮，支持向前/向后滚动
-3. 滚动后：后续所有天按原始时间段自动重新填充
-
-技术栈：PyQt5 + 内置数据存储（QSettings 嵌入式）
+数据结构：
+- 多个母计划，每个母计划独立：plans / time_slots / start_date / current_day / borrowed_slots
+- 切换母计划：写入界面 + 执行界面都切换
+- 借指定时间段：借的是"名为 X 的时间段位置"，从最靠前的未占用槽位借
+- 链式借：明天借空了，从后天借
+- 额外轮按借的顺序显示
 """
 
 import sys
 import json
-from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
+    QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox, QTabWidget,
     QGroupBox, QInputDialog
 )
 from PyQt5.QtCore import Qt, QDate, QSettings
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont
 
 
 # ============== 数据模型 ==============
 
-class PlanData:
-    """计划数据模型 - 嵌入式存储"""
+class ParentPlan:
+    """单个母计划"""
 
-    def __init__(self):
-        self.plans = []           # 计划列表 ["a", "b", "c", ...]
-        self.time_slots = []      # 时间段列表 [{"name": "上午", "count": 1}, ...]
-        self.start_date = None    # 开始日期 QDate
-        self.current_day = 0      # 当前是第几天（0-indexed），由用户滚动控制
-        self.extra_count = 0      # 额外轮数量（从明天借过来的时间段数）
-
-    def add_plan(self, text):
-        if text.strip():
-            self.plans.append(text.strip())
-
-    def remove_plan(self, index):
-        if 0 <= index < len(self.plans):
-            self.plans.pop(index)
-
-    def update_plan(self, index, text):
-        if 0 <= index < len(self.plans):
-            self.plans[index] = text.strip()
+    def __init__(self, name="新母计划"):
+        self.name = name
+        self.plans = []
+        self.time_slots = []
+        self.start_date = QDate.currentDate()
+        self.current_day = 0
+        self.borrowed_slots = []  # [(slot_name, plan_text), ...] 按借的顺序
 
     def to_dict(self):
         return {
+            "name": self.name,
             "plans": self.plans,
             "time_slots": self.time_slots,
-            "start_date": self.start_date.toString("yyyy-MM-dd") if self.start_date else None,
+            "start_date": self.start_date.toString("yyyy-MM-dd"),
             "current_day": self.current_day,
-            "extra_count": self.extra_count,
+            "borrowed_slots": self.borrowed_slots,
         }
 
-    def from_dict(self, data):
-        self.plans = data.get("plans", [])
-        self.time_slots = data.get("time_slots", [])
-        sd = data.get("start_date")
-        self.start_date = QDate.fromString(sd, "yyyy-MM-dd") if sd else None
-        self.current_day = data.get("current_day", 0)
-        self.extra_count = data.get("extra_count", 0)
+    def from_dict(self, d):
+        self.name = d.get("name", "新母计划")
+        self.plans = d.get("plans", [])
+        self.time_slots = d.get("time_slots", [])
+        sd = d.get("start_date")
+        if sd:
+            self.start_date = QDate.fromString(sd, "yyyy-MM-dd")
+        self.current_day = d.get("current_day", 0)
+        self.borrowed_slots = d.get("borrowed_slots", [])
+
+
+class PlanData:
+    """全局数据"""
+
+    def __init__(self):
+        self.parents = [ParentPlan("母计划1")]
+        self.current_parent_idx = 0
+
+    @property
+    def current_parent(self):
+        return self.parents[self.current_parent_idx]
+
+    def add_parent(self, name=None):
+        if name is None:
+            name = f"母计划{len(self.parents)+1}"
+        self.parents.append(ParentPlan(name))
+
+    def remove_parent(self, idx):
+        if 0 <= idx < len(self.parents) and len(self.parents) > 1:
+            self.parents.pop(idx)
+            if self.current_parent_idx >= len(self.parents):
+                self.current_parent_idx = len(self.parents) - 1
+
+    def to_dict(self):
+        return {
+            "parents": [p.to_dict() for p in self.parents],
+            "current_parent_idx": self.current_parent_idx,
+        }
+
+    def from_dict(self, d):
+        self.parents = []
+        for pd in d.get("parents", []):
+            p = ParentPlan()
+            p.from_dict(pd)
+            self.parents.append(p)
+        if not self.parents:
+            self.parents = [ParentPlan("母计划1")]
+        self.current_parent_idx = d.get("current_parent_idx", 0)
+        if self.current_parent_idx >= len(self.parents):
+            self.current_parent_idx = 0
 
     def save(self):
-        settings = QSettings("RollingPlan", "Data")
-        settings.setValue("plan_data", json.dumps(self.to_dict()))
+        s = QSettings("RollingPlan", "Data")
+        s.setValue("plan_data", json.dumps(self.to_dict(), ensure_ascii=False))
 
     def load(self):
-        settings = QSettings("RollingPlan", "Data")
-        data = settings.value("plan_data")
+        s = QSettings("RollingPlan", "Data")
+        data = s.value("plan_data")
         if data:
             try:
                 self.from_dict(json.loads(data))
@@ -79,126 +111,174 @@ class PlanData:
         return False
 
 
-# ============== 核心调度逻辑 ==============
+# ============== 核心调度 ==============
 
 class PlanScheduler:
-    """计划调度器 - 把计划按时间段切片到日历，支持滚动"""
+    """母计划调度器"""
 
-    def __init__(self, data: PlanData):
-        self.data = data
+    def __init__(self, parent: ParentPlan):
+        self.p = parent
 
     def slots_per_day(self):
-        """每天时间段总数"""
-        return sum(slot.get("count", 1) for slot in self.data.time_slots)
+        return sum(s.get("count", 1) for s in self.p.time_slots)
+
+    def _expand_slots(self):
+        """把时间段展开成 [(slot_name, plan_idx), ...] 的列表"""
+        result = []
+        idx = 0
+        for slot in self.p.time_slots:
+            for _ in range(slot.get("count", 1)):
+                result.append((slot["name"], idx))
+                idx += 1
+        return result
 
     def get_day_plans(self, day_index):
-        """
-        获取第 day_index 天的计划切片
-        返回: [(时间段名, 计划内容或None), ...]
-        """
+        """第 day_index 天的计划切片 [(slot_name, plan), ...]"""
         spd = self.slots_per_day()
         if spd == 0:
             return []
+        slots = self._expand_slots()
+        start = day_index * spd
+        plans_slice = self.p.plans[start:start + spd]
 
-        start_idx = day_index * spd
-        end_idx = start_idx + spd
-        raw = self.data.plans[start_idx:end_idx]
-
-        # 展开时间段
         result = []
-        plan_idx = 0
-        for slot in self.data.time_slots:
-            for _ in range(slot.get("count", 1)):
-                if plan_idx < len(raw):
-                    result.append((slot["name"], raw[plan_idx]))
-                    plan_idx += 1
-                else:
-                    result.append((slot["name"], None))
+        for i, (sname, sidx) in enumerate(slots):
+            if i < len(plans_slice):
+                result.append((sname, plans_slice[i]))
+            else:
+                result.append((sname, None))
         return result
 
     def get_calendar(self):
-        """生成完整日历"""
-        if not self.data.start_date:
+        if not self.p.start_date:
             return []
         spd = self.slots_per_day()
-        if spd == 0:
+        if spd == 0 or not self.p.plans:
             return []
-        total_days = (len(self.data.plans) + spd - 1) // spd
-        calendar = []
+        total_days = (len(self.p.plans) + spd - 1) // spd
+        cal = []
         for i in range(total_days):
-            date = self.data.start_date.addDays(i)
-            plans = self.get_day_plans(i)
-            calendar.append((date, plans))
-        return calendar
+            d = self.p.start_date.addDays(i)
+            cal.append((d, self.get_day_plans(i)))
+        return cal
+
+    def _all_slot_positions(self):
+        """所有时间段位置: [(day_index, slot_name, plan_idx), ...]"""
+        spd = self.slots_per_day()
+        if spd == 0 or not self.p.plans:
+            return []
+        result = []
+        day_count = (len(self.p.plans) + spd - 1) // spd
+        for day in range(day_count):
+            day_plans = self.get_day_plans(day)
+            for i, (sname, plan) in enumerate(day_plans):
+                result.append((day, sname, i, plan))
+        return result
+
+    def get_borrowed_slots_with_meta(self):
+        """额外轮完整信息：[(slot_name, plan, day, slot_idx), ...]"""
+        return [tuple(b) for b in self.p.borrowed_slots if len(b) >= 4]
 
     def get_extra_plans(self):
-        """
-        获取额外轮计划列表
-        逻辑：从明天 (current_day + 1) 的前 extra_count 个时间段取
-        """
-        if self.data.extra_count <= 0:
+        """额外轮展示：[(slot_name, plan), ...]"""
+        result = []
+        for entry in self.get_borrowed_slots_with_meta():
+            slot_name, plan, day, slot_idx = entry
+            result.append((slot_name, plan))
+        return result
+
+    def _future_slot_positions(self):
+        """未来可借的位置（day > current_day）:
+        [(day, slot_name, slot_idx, plan), ...]
+        按 (day, slot_idx) 顺序"""
+        spd = self.slots_per_day()
+        if spd == 0 or not self.p.plans:
             return []
+        result = []
+        day_count = (len(self.p.plans) + spd - 1) // spd
+        for day in range(self.p.current_day + 1, day_count):
+            day_plans = self.get_day_plans(day)
+            for i, (sname, plan) in enumerate(day_plans):
+                if plan is not None:
+                    result.append((day, sname, i, plan))
+        return result
 
-        next_day_idx = self.data.current_day + 1
-        next_day_plans = self.get_day_plans(next_day_idx)
+    def can_borrow_slot(self, slot_name):
+        """能否借指定时间段：从未来位置里找同名未借的"""
+        borrowed_set = set()
+        for entry in self.get_borrowed_slots_with_meta():
+            _, _, day, slot_idx = entry
+            borrowed_set.add((day, slot_idx))
 
-        # 取前 extra_count 个（按时间段顺序）
-        return next_day_plans[:self.data.extra_count]
+        for day, sname, sidx, plan in self._future_slot_positions():
+            if sname == slot_name and (day, sidx) not in borrowed_set:
+                return True
+        return False
 
-    def can_roll_forward(self):
-        """能否向前滚动：明天还有至少 (extra_count + 1) 个时间段可借"""
-        spd = self.slots_per_day()
-        if spd == 0:
+    def borrow_slot(self, slot_name):
+        """借指定时间段：从未来位置里找同名未借的最近一个"""
+        if not self.can_borrow_slot(slot_name):
             return False
-        # 明天的计划切片长度
-        next_day_plans = self.get_day_plans(self.data.current_day + 1)
-        # 借走前 extra_count 个后，还要至少剩 1 个
-        return len(next_day_plans) > self.data.extra_count
+        borrowed_set = set()
+        for entry in self.get_borrowed_slots_with_meta():
+            _, _, day, slot_idx = entry
+            borrowed_set.add((day, slot_idx))
 
-    def can_roll_backward(self):
-        """能否向后滚动：至少要有 1 个额外轮可以推回去"""
-        return self.data.extra_count > 0
+        for day, sname, sidx, plan in self._future_slot_positions():
+            if sname == slot_name and (day, sidx) not in borrowed_set:
+                self.p.borrowed_slots.append([sname, plan, day, sidx])
+                self.save_parent()
+                return True
+        return False
 
-    def roll_forward(self):
-        """向前滚动：从明天多借 1 个时间段到额外轮"""
-        if not self.can_roll_forward():
+    def return_last_borrowed(self):
+        """向后滚动：把额外轮最后 1 个推回去"""
+        if not self.p.borrowed_slots:
             return False
-        self.data.extra_count += 1
-        self.data.save()
+        self.p.borrowed_slots.pop()
+        self.save_parent()
         return True
 
-    def roll_backward(self):
-        """向后滚动：把额外轮最后 1 个推回明天"""
-        if not self.can_roll_backward():
-            return False
-        self.data.extra_count -= 1
-        self.data.save()
-        return True
+    def can_return(self):
+        return len(self.p.borrowed_slots) > 0
 
-    def all_plans_consumed(self):
+    def save_parent(self):
+        pass  # 占位，实际由外部 PlanData.save() 触发
+
+    def all_consumed(self):
         """所有计划是否都已用完：
-        条件 = 当前天没计划 AND 额外轮也借无可借"""
+        条件 = 当前天所有时间段都为空 + 没额外轮可借 + 当前天不能继续往后滚
+        简化：当前天无内容 + 没额外轮 + 后面也没可借的"""
+        day_plans = self.get_day_plans(self.p.current_day)
+        day_has_content = any(p is not None for _, p in day_plans)
+
+        # 检查还能不能借任何时间段
+        any_can_borrow = False
+        for slot in self.p.time_slots:
+            if self.can_borrow_slot(slot["name"]):
+                any_can_borrow = True
+                break
+
+        return not day_has_content and not any_can_borrow and not self.can_return()
+
+    def get_progress(self):
+        """进度：已分配的槽位数 / 总槽位数
+        已分配 = (current_day + 1) * spd 但不超过总计划数"""
         spd = self.slots_per_day()
         if spd == 0:
-            return True
-        day_plans = self.get_day_plans(self.data.current_day)
-        day_has_content = any(plan is not None for _, plan in day_plans)
-        return not day_has_content and not self.can_roll_forward()
-
-    def is_day_complete(self):
-        """当天是否所有时间段都有计划（不算额外轮）"""
-        day_plans = self.get_day_plans(self.data.current_day)
-        return all(plan is not None for _, plan in day_plans)
+            return 0, 0
+        consumed = min((self.p.current_day + 1) * spd, len(self.p.plans))
+        return consumed, len(self.p.plans)
 
 
 # ============== 写入界面 ==============
 
 class PlanEditor(QWidget):
-    def __init__(self, data: PlanData, scheduler: PlanScheduler, on_switch_to_exec):
+    def __init__(self, data: PlanData, on_switch_to_exec):
         super().__init__()
         self.data = data
-        self.scheduler = scheduler
         self.on_switch_to_exec = on_switch_to_exec
+        self.scheduler = PlanScheduler(data.current_parent)
         self.init_ui()
         self.refresh_all()
 
@@ -209,74 +289,104 @@ class PlanEditor(QWidget):
         title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         layout.addWidget(title)
 
-        # 计划列表
-        plan_group = QGroupBox("计划列表（按顺序）")
+        # ============ 母计划列表 ============
+        parent_group = QGroupBox("母计划列表（可多个并行，切换编辑）")
+        pg_layout = QHBoxLayout()
+
+        self.parent_list = QListWidget()
+        self.parent_list.setMaximumWidth(180)
+        self.parent_list.currentRowChanged.connect(self.on_parent_select)
+        pg_layout.addWidget(self.parent_list)
+
+        pg_btn_col = QVBoxLayout()
+        for text, cb in [
+            ("+ 新建母计划", self.on_add_parent),
+            ("重命名", self.on_rename_parent),
+            ("删除选中", self.on_del_parent),
+            ("↑ 上移", self.on_parent_up),
+            ("↓ 下移", self.on_parent_down),
+        ]:
+            btn = QPushButton(text)
+            btn.clicked.connect(cb)
+            pg_btn_col.addWidget(btn)
+        pg_btn_col.addStretch()
+        pg_layout.addLayout(pg_btn_col)
+
+        parent_group.setLayout(pg_layout)
+        layout.addWidget(parent_group)
+
+        # ============ 当前母计划名 ============
+        self.parent_name_label = QLabel()
+        self.parent_name_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+        layout.addWidget(self.parent_name_label)
+
+        # ============ 子计划列表 ============
+        plan_group = QGroupBox("子计划列表（按顺序）")
         plan_layout = QVBoxLayout()
 
         self.plan_list = QListWidget()
-        self.plan_list.setMaximumHeight(180)
+        self.plan_list.setMaximumHeight(160)
         plan_layout.addWidget(self.plan_list)
 
         edit_row = QHBoxLayout()
         self.plan_input = QLineEdit()
-        self.plan_input.setPlaceholderText("输入计划内容，回车添加")
+        self.plan_input.setPlaceholderText("输入子计划内容，回车添加")
         self.plan_input.returnPressed.connect(self.add_plan)
         edit_row.addWidget(self.plan_input)
 
-        for text, callback in [
+        for text, cb in [
             ("添加", self.add_plan),
-            ("编辑选中", self.edit_plan),
-            ("删除选中", self.delete_plan),
-            ("↑ 上移", self.move_plan_up),
-            ("↓ 下移", self.move_plan_down),
+            ("编辑", self.edit_plan),
+            ("删除", self.del_plan),
+            ("↑", self.plan_up),
+            ("↓", self.plan_down),
         ]:
             btn = QPushButton(text)
-            btn.clicked.connect(callback)
+            btn.clicked.connect(cb)
             edit_row.addWidget(btn)
 
         plan_layout.addLayout(edit_row)
         plan_group.setLayout(plan_layout)
         layout.addWidget(plan_group)
 
-        # 时间段
-        slot_group = QGroupBox("每天时间段（可自定义）")
+        # ============ 时间段 ============
+        slot_group = QGroupBox("时间段（可自定义）")
         slot_layout = QVBoxLayout()
 
         self.slot_list = QListWidget()
         self.slot_list.setMaximumHeight(120)
         slot_layout.addWidget(self.slot_list)
 
-        slot_edit_row = QHBoxLayout()
+        slot_row = QHBoxLayout()
         self.slot_name_input = QLineEdit()
-        self.slot_name_input.setPlaceholderText("时间段名（如：上午）")
-        slot_edit_row.addWidget(self.slot_name_input)
+        self.slot_name_input.setPlaceholderText("时间段名")
+        slot_row.addWidget(self.slot_name_input)
 
         self.slot_count_input = QSpinBox()
         self.slot_count_input.setMinimum(1)
         self.slot_count_input.setMaximum(10)
         self.slot_count_input.setValue(1)
         self.slot_count_input.setPrefix("数量:")
-        slot_edit_row.addWidget(self.slot_count_input)
+        slot_row.addWidget(self.slot_count_input)
 
-        for text, callback in [
-            ("添加时间段", self.add_slot),
-            ("编辑选中", self.edit_slot),
-            ("删除选中", self.delete_slot),
-            ("↑ 上移", self.move_slot_up),
-            ("↓ 下移", self.move_slot_down),
+        for text, cb in [
+            ("添加", self.add_slot),
+            ("编辑", self.edit_slot),
+            ("删除", self.del_slot),
+            ("↑", self.slot_up),
+            ("↓", self.slot_down),
         ]:
             btn = QPushButton(text)
-            btn.clicked.connect(callback)
-            slot_edit_row.addWidget(btn)
+            btn.clicked.connect(cb)
+            slot_row.addWidget(btn)
 
-        slot_layout.addLayout(slot_edit_row)
+        slot_layout.addLayout(slot_row)
         slot_group.setLayout(slot_layout)
         layout.addWidget(slot_group)
 
-        # 开始日期
+        # ============ 开始日期 ============
         date_group = QGroupBox("开始日期")
         date_layout = QHBoxLayout()
-
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setDate(QDate.currentDate())
@@ -284,162 +394,252 @@ class PlanEditor(QWidget):
         date_group.setLayout(date_layout)
         layout.addWidget(date_group)
 
-        # 操作按钮
+        # ============ 操作 ============
         btn_row = QHBoxLayout()
-
         save_btn = QPushButton("保存并生成计划表")
         save_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
         save_btn.clicked.connect(self.save_and_preview)
         btn_row.addWidget(save_btn)
 
-        preview_btn = QPushButton("预览生成结果")
+        preview_btn = QPushButton("预览")
         preview_btn.clicked.connect(self.preview_calendar)
         btn_row.addWidget(preview_btn)
 
-        go_exec_btn = QPushButton("进入执行界面 →")
-        go_exec_btn.clicked.connect(self.go_to_exec)
-        btn_row.addWidget(go_exec_btn)
+        go_exec = QPushButton("进入执行界面 →")
+        go_exec.clicked.connect(self.go_exec)
+        btn_row.addWidget(go_exec)
 
         layout.addLayout(btn_row)
 
-        # 预览区
         self.preview_area = QTextEdit()
         self.preview_area.setReadOnly(True)
-        self.preview_area.setMaximumHeight(200)
+        self.preview_area.setMaximumHeight(180)
         layout.addWidget(self.preview_area)
 
         self.setLayout(layout)
 
+    def on_parent_select(self, idx):
+        if idx < 0 or idx >= len(self.data.parents):
+            return
+        # 切换前先保存当前编辑内容到当前母计划
+        self.save_current_to_parent()
+        self.data.current_parent_idx = idx
+        self.scheduler = PlanScheduler(self.data.current_parent)
+        self.refresh_all()
+
+    def save_current_to_parent(self):
+        """把当前界面控件值写回当前母计划"""
+        cp = self.data.current_parent
+        cp.start_date = self.date_edit.date()
+        # plans / time_slots 已经直接绑定在 self.data.current_parent 上
+        # 这里只额外保存日期
+
+    def on_add_parent(self):
+        self.save_current_to_parent()
+        name, ok = QInputDialog.getText(self, "新建母计划", "母计划名:")
+        if ok and name.strip():
+            self.data.add_parent(name.strip())
+        else:
+            self.data.add_parent()
+        self.data.current_parent_idx = len(self.data.parents) - 1
+        self.scheduler = PlanScheduler(self.data.current_parent)
+        self.refresh_all()
+        self.data.save()
+
+    def on_rename_parent(self):
+        idx = self.parent_list.currentRow()
+        if idx < 0:
+            return
+        new_name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=self.data.parents[idx].name)
+        if ok and new_name.strip():
+            self.data.parents[idx].name = new_name.strip()
+            self.refresh_all()
+            self.data.save()
+
+    def on_del_parent(self):
+        idx = self.parent_list.currentRow()
+        if idx < 0:
+            return
+        if len(self.data.parents) <= 1:
+            QMessageBox.warning(self, "提示", "至少保留一个母计划")
+            return
+        reply = QMessageBox.question(self, "确认", f"删除母计划「{self.data.parents[idx].name}」？")
+        if reply == QMessageBox.Yes:
+            self.data.remove_parent(idx)
+            self.scheduler = PlanScheduler(self.data.current_parent)
+            self.refresh_all()
+            self.data.save()
+
+    def on_parent_up(self):
+        idx = self.parent_list.currentRow()
+        if idx > 0:
+            self.data.parents[idx-1], self.data.parents[idx] = self.data.parents[idx], self.data.parents[idx-1]
+            self.data.current_parent_idx = idx - 1
+            self.refresh_all()
+            self.data.save()
+
+    def on_parent_down(self):
+        idx = self.parent_list.currentRow()
+        if 0 <= idx < len(self.data.parents) - 1:
+            self.data.parents[idx+1], self.data.parents[idx] = self.data.parents[idx], self.data.parents[idx+1]
+            self.data.current_parent_idx = idx + 1
+            self.refresh_all()
+            self.data.save()
+
     def refresh_all(self):
+        # 母计划列表
+        self.parent_list.blockSignals(True)
+        self.parent_list.clear()
+        for i, p in enumerate(self.data.parents):
+            self.parent_list.addItem(f"{i+1}. {p.name}")
+        if self.data.current_parent_idx < self.parent_list.count():
+            self.parent_list.setCurrentRow(self.data.current_parent_idx)
+        self.parent_list.blockSignals(False)
+
+        cp = self.data.current_parent
+        self.parent_name_label.setText(f"当前母计划：{cp.name}")
+
+        # 子计划
         self.plan_list.clear()
-        for i, plan in enumerate(self.data.plans):
+        for i, plan in enumerate(cp.plans):
             self.plan_list.addItem(f"{i+1}. {plan}")
 
+        # 时间段
         self.slot_list.clear()
-        for i, slot in enumerate(self.data.time_slots):
-            display = slot["name"]
+        for i, slot in enumerate(cp.time_slots):
+            disp = slot["name"]
             if slot.get("count", 1) > 1:
-                display += f" x{slot['count']}"
-            self.slot_list.addItem(f"{i+1}. {display}")
+                disp += f" x{slot['count']}"
+            self.slot_list.addItem(f"{i+1}. {disp}")
 
-        if self.data.start_date:
-            self.date_edit.setDate(self.data.start_date)
+        if cp.start_date:
+            self.date_edit.setDate(cp.start_date)
+
+        self.scheduler = PlanScheduler(cp)
 
     def add_plan(self):
         text = self.plan_input.text().strip()
         if text:
-            self.data.add_plan(text)
+            self.data.current_parent.plans.append(text)
             self.plan_input.clear()
             self.refresh_all()
+            self.data.save()
 
     def edit_plan(self):
-        current = self.plan_list.currentRow()
-        if current < 0:
-            QMessageBox.warning(self, "提示", "请先选中要编辑的计划")
+        cur = self.plan_list.currentRow()
+        if cur < 0:
             return
-        new_text, ok = QInputDialog.getText(self, "编辑计划", "新内容:", text=self.data.plans[current])
+        new_text, ok = QInputDialog.getText(self, "编辑", "新内容:", text=self.data.current_parent.plans[cur])
         if ok and new_text.strip():
-            self.data.update_plan(current, new_text)
+            self.data.current_parent.plans[cur] = new_text.strip()
             self.refresh_all()
+            self.data.save()
 
-    def delete_plan(self):
-        current = self.plan_list.currentRow()
-        if current < 0:
-            QMessageBox.warning(self, "提示", "请先选中要删除的计划")
+    def del_plan(self):
+        cur = self.plan_list.currentRow()
+        if cur < 0:
             return
-        self.data.remove_plan(current)
+        self.data.current_parent.plans.pop(cur)
         self.refresh_all()
+        self.data.save()
 
-    def move_plan_up(self):
-        current = self.plan_list.currentRow()
-        if current > 0:
-            self.data.plans[current-1], self.data.plans[current] = self.data.plans[current], self.data.plans[current-1]
+    def plan_up(self):
+        cur = self.plan_list.currentRow()
+        if cur > 0:
+            p = self.data.current_parent.plans
+            p[cur-1], p[cur] = p[cur], p[cur-1]
             self.refresh_all()
-            self.plan_list.setCurrentRow(current - 1)
+            self.plan_list.setCurrentRow(cur - 1)
+            self.data.save()
 
-    def move_plan_down(self):
-        current = self.plan_list.currentRow()
-        if 0 <= current < len(self.data.plans) - 1:
-            self.data.plans[current+1], self.data.plans[current] = self.data.plans[current], self.data.plans[current+1]
+    def plan_down(self):
+        cur = self.plan_list.currentRow()
+        p = self.data.current_parent.plans
+        if 0 <= cur < len(p) - 1:
+            p[cur+1], p[cur] = p[cur], p[cur+1]
             self.refresh_all()
-            self.plan_list.setCurrentRow(current + 1)
+            self.plan_list.setCurrentRow(cur + 1)
+            self.data.save()
 
     def add_slot(self):
         name = self.slot_name_input.text().strip()
         count = self.slot_count_input.value()
         if name:
-            self.data.time_slots.append({"name": name, "count": count})
+            self.data.current_parent.time_slots.append({"name": name, "count": count})
             self.slot_name_input.clear()
             self.slot_count_input.setValue(1)
             self.refresh_all()
+            self.data.save()
 
     def edit_slot(self):
-        current = self.slot_list.currentRow()
-        if current < 0:
-            QMessageBox.warning(self, "提示", "请先选中要编辑的时间段")
+        cur = self.slot_list.currentRow()
+        if cur < 0:
             return
-        slot = self.data.time_slots[current]
-        new_name, ok = QInputDialog.getText(self, "编辑时间段", "新名称:", text=slot["name"])
+        slot = self.data.current_parent.time_slots[cur]
+        new_name, ok = QInputDialog.getText(self, "编辑", "新名称:", text=slot["name"])
         if ok and new_name.strip():
-            new_count, ok2 = QInputDialog.getInt(self, "编辑时间段", "新数量:", value=slot.get("count", 1), min=1, max=10)
+            new_count, ok2 = QInputDialog.getInt(self, "编辑", "新数量:", value=slot.get("count", 1), min=1, max=10)
             if ok2:
-                self.data.time_slots[current] = {"name": new_name, "count": new_count}
+                self.data.current_parent.time_slots[cur] = {"name": new_name, "count": new_count}
                 self.refresh_all()
+                self.data.save()
 
-    def delete_slot(self):
-        current = self.slot_list.currentRow()
-        if current < 0:
-            QMessageBox.warning(self, "提示", "请先选中要删除的时间段")
+    def del_slot(self):
+        cur = self.slot_list.currentRow()
+        if cur < 0:
             return
-        self.data.time_slots.pop(current)
+        self.data.current_parent.time_slots.pop(cur)
         self.refresh_all()
+        self.data.save()
 
-    def move_slot_up(self):
-        current = self.slot_list.currentRow()
-        if current > 0:
-            self.data.time_slots[current-1], self.data.time_slots[current] = self.data.time_slots[current], self.data.time_slots[current-1]
+    def slot_up(self):
+        cur = self.slot_list.currentRow()
+        if cur > 0:
+            s = self.data.current_parent.time_slots
+            s[cur-1], s[cur] = s[cur], s[cur-1]
             self.refresh_all()
-            self.slot_list.setCurrentRow(current - 1)
+            self.slot_list.setCurrentRow(cur - 1)
+            self.data.save()
 
-    def move_slot_down(self):
-        current = self.slot_list.currentRow()
-        if 0 <= current < len(self.data.time_slots) - 1:
-            self.data.time_slots[current+1], self.data.time_slots[current] = self.data.time_slots[current], self.data.time_slots[current+1]
+    def slot_down(self):
+        cur = self.slot_list.currentRow()
+        s = self.data.current_parent.time_slots
+        if 0 <= cur < len(s) - 1:
+            s[cur+1], s[cur] = s[cur], s[cur+1]
             self.refresh_all()
-            self.slot_list.setCurrentRow(current + 1)
+            self.slot_list.setCurrentRow(cur + 1)
+            self.data.save()
 
     def save_and_preview(self):
-        self.data.start_date = self.date_edit.date()
+        self.save_current_to_parent()
         self.data.save()
         self.preview_calendar()
 
     def preview_calendar(self):
-        self.data.start_date = self.date_edit.date()
-        self.scheduler = PlanScheduler(self.data)
-
-        if not self.data.plans:
-            QMessageBox.warning(self, "提示", "请先添加计划")
+        self.save_current_to_parent()
+        self.scheduler = PlanScheduler(self.data.current_parent)
+        p = self.data.current_parent
+        if not p.plans:
+            QMessageBox.warning(self, "提示", "请先添加子计划")
             return
-        if not self.data.time_slots:
+        if not p.time_slots:
             QMessageBox.warning(self, "提示", "请先添加时间段")
             return
-
-        calendar = self.scheduler.get_calendar()
-        lines = [f"📅 计划表（共 {len(calendar)} 天）", "=" * 40]
-
-        for i, (date, plans) in enumerate(calendar):
-            lines.append(f"\n第 {i+1} 天 ({date.toString('yyyy-MM-dd ddd')}):")
-            for slot_name, plan in plans:
-                marker = "  ✓ " if plan else "  · "
-                content = plan if plan else "(空)"
-                lines.append(f"{marker}{slot_name}: {content}")
-
+        cal = self.scheduler.get_calendar()
+        lines = [f"📅 【{p.name}】计划表（共 {len(cal)} 天）", "=" * 40]
+        for i, (d, plans) in enumerate(cal):
+            lines.append(f"\n第{i+1}天 ({d.toString('MM-dd ddd')}):")
+            for sname, plan in plans:
+                m = "✓" if plan else "·"
+                lines.append(f"  {m} {sname}: {plan if plan else '(空)'}")
         self.preview_area.setText("\n".join(lines))
 
-    def go_to_exec(self):
-        if not self.data.plans or not self.data.time_slots or not self.data.start_date:
-            QMessageBox.warning(self, "提示", "请先完成计划列表/时间段/开始日期的填写")
+    def go_exec(self):
+        cp = self.data.current_parent
+        if not cp.plans or not cp.time_slots or not cp.start_date:
+            QMessageBox.warning(self, "提示", "请先完成子计划/时间段/开始日期")
             return
+        self.save_current_to_parent()
         self.data.save()
         self.on_switch_to_exec()
 
@@ -447,11 +647,11 @@ class PlanEditor(QWidget):
 # ============== 执行界面 ==============
 
 class PlanExecutor(QWidget):
-    def __init__(self, data: PlanData, scheduler: PlanScheduler, on_switch_to_edit):
+    def __init__(self, data: PlanData, on_switch_to_edit):
         super().__init__()
         self.data = data
-        self.scheduler = scheduler
         self.on_switch_to_edit = on_switch_to_edit
+        self.scheduler = PlanScheduler(data.current_parent)
         self.init_ui()
         self.refresh()
 
@@ -462,6 +662,24 @@ class PlanExecutor(QWidget):
         title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         layout.addWidget(title)
 
+        # 母计划切换
+        parent_row = QHBoxLayout()
+        parent_row.addWidget(QLabel("当前母计划:"))
+        self.parent_combo_label = QLabel()
+        self.parent_combo_label.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
+        parent_row.addWidget(self.parent_combo_label)
+
+        self.parent_switch_btn = QPushButton("切换母计划 →")
+        self.parent_switch_btn.clicked.connect(self.on_switch_parent)
+        parent_row.addWidget(self.parent_switch_btn)
+        parent_row.addStretch()
+
+        edit_btn = QPushButton("← 返回编辑")
+        edit_btn.clicked.connect(self.on_switch_to_edit)
+        parent_row.addWidget(edit_btn)
+        layout.addLayout(parent_row)
+
+        # 信息行
         info_row = QHBoxLayout()
         self.date_label = QLabel()
         self.date_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
@@ -469,23 +687,17 @@ class PlanExecutor(QWidget):
 
         self.progress_label = QLabel()
         info_row.addWidget(self.progress_label)
-
         info_row.addStretch()
-
-        edit_btn = QPushButton("← 返回编辑")
-        edit_btn.clicked.connect(self.on_switch_to_edit)
-        info_row.addWidget(edit_btn)
-
         layout.addLayout(info_row)
 
-        # 当天时间段
+        # 当天
         self.day_group = QGroupBox("当天时间段")
         self.day_layout = QVBoxLayout()
         self.day_group.setLayout(self.day_layout)
         layout.addWidget(self.day_group)
 
         # 额外轮
-        self.extra_group = QGroupBox("额外轮（向前滚动后填充）")
+        self.extra_group = QGroupBox("额外轮（借指定时间段而来，按借的顺序）")
         self.extra_layout = QVBoxLayout()
         self.extra_group.setLayout(self.extra_layout)
         layout.addWidget(self.extra_group)
@@ -493,17 +705,17 @@ class PlanExecutor(QWidget):
         # 滚动按钮
         roll_row = QHBoxLayout()
 
-        self.roll_backward_btn = QPushButton("← 向后滚动（少做）")
-        self.roll_backward_btn.setFont(QFont("Microsoft YaHei", 11))
-        self.roll_backward_btn.clicked.connect(self.on_roll_backward)
-        roll_row.addWidget(self.roll_backward_btn)
+        self.borrow_btn = QPushButton("借指定时间段 →")
+        self.borrow_btn.setFont(QFont("Microsoft YaHei", 11))
+        self.borrow_btn.setStyleSheet("background-color: #FF9800; color: white;")
+        self.borrow_btn.clicked.connect(self.on_borrow)
+        roll_row.addWidget(self.borrow_btn)
 
-        self.roll_forward_btn = QPushButton("向前滚动（多做）→")
-        self.roll_forward_btn.setFont(QFont("Microsoft YaHei", 11))
-        self.roll_forward_btn.clicked.connect(self.on_roll_forward)
-        roll_row.addWidget(self.roll_forward_btn)
+        self.return_btn = QPushButton("← 退回最后借的")
+        self.return_btn.setFont(QFont("Microsoft YaHei", 11))
+        self.return_btn.clicked.connect(self.on_return)
+        roll_row.addWidget(self.return_btn)
 
-        # 当天完成按钮（推进到下一天）
         next_btn = QPushButton("✓ 当天完成 → 下一天")
         next_btn.setFont(QFont("Microsoft YaHei", 11))
         next_btn.setStyleSheet("background-color: #4CAF50; color: white;")
@@ -512,21 +724,27 @@ class PlanExecutor(QWidget):
 
         layout.addLayout(roll_row)
 
-        # 日历预览
+        # 日历
         cal_group = QGroupBox("完整日历预览")
         cal_layout = QVBoxLayout()
         self.calendar_area = QTextEdit()
         self.calendar_area.setReadOnly(True)
-        self.calendar_area.setMaximumHeight(180)
+        self.calendar_area.setMaximumHeight(160)
         cal_layout.addWidget(self.calendar_area)
         cal_group.setLayout(cal_layout)
         layout.addWidget(cal_group)
 
         self.setLayout(layout)
 
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
     def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False):
         row = QHBoxLayout()
-
         prefix = "⤴ " if is_extra else ""
         color = "#2E7D32" if is_extra else "black"
 
@@ -551,87 +769,125 @@ class PlanExecutor(QWidget):
         parent_layout.addWidget(container)
 
     def refresh(self):
-        # 清空
-        for layout in [self.day_layout, self.extra_layout]:
-            while layout.count():
-                item = layout.takeAt(0)
-                w = item.widget()
-                if w:
-                    w.deleteLater()
+        self._clear_layout(self.day_layout)
+        self._clear_layout(self.extra_layout)
 
-        # 日期标签
-        if self.data.start_date:
-            current_date = self.data.start_date.addDays(self.data.current_day)
-            self.date_label.setText(f"📅 第 {self.data.current_day+1} 天 ({current_date.toString('yyyy-MM-dd ddd')})")
+        p = self.data.current_parent
+        self.scheduler = PlanScheduler(p)
 
-        # 进度
-        total = len(self.data.plans)
-        spd = self.scheduler.slots_per_day()
-        consumed = (self.data.current_day + 1) * spd
-        consumed = min(consumed, total)
-        self.progress_label.setText(f"进度: {consumed}/{total}")
+        self.parent_combo_label.setText(f"【{p.name}】")
 
-        # 当天时间段
-        day_plans = self.scheduler.get_day_plans(self.data.current_day)
+        if p.start_date:
+            cd = p.start_date.addDays(p.current_day)
+            self.date_label.setText(f"📅 第 {p.current_day+1} 天 ({cd.toString('yyyy-MM-dd ddd')})")
+
+        consumed, total = self.scheduler.get_progress()
+        self.progress_label.setText(f"进度：{consumed}/{total}")
+
+        # 当天
+        day_plans = self.scheduler.get_day_plans(p.current_day)
         if not day_plans:
             lbl = QLabel("(当天没有安排)")
             lbl.setAlignment(Qt.AlignCenter)
             self.day_layout.addWidget(lbl)
         else:
-            for slot_name, plan in day_plans:
-                self._add_slot_row(self.day_layout, slot_name, plan, is_extra=False)
+            for sname, plan in day_plans:
+                self._add_slot_row(self.day_layout, sname, plan, is_extra=False)
 
         # 额外轮
-        extra_plans = self.scheduler.get_extra_plans()
-        if not extra_plans:
-            lbl = QLabel("(尚未向前滚动，或已无更多计划)")
+        extra = self.scheduler.get_extra_plans()
+        if not extra:
+            lbl = QLabel("(尚未借，或已无更多可借)")
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet("color: gray;")
             self.extra_layout.addWidget(lbl)
         else:
-            for slot_name, plan in extra_plans:
-                self._add_slot_row(self.extra_layout, slot_name, plan, is_extra=True)
+            for sname, plan in extra:
+                self._add_slot_row(self.extra_layout, sname, plan, is_extra=True)
 
-        # 按钮状态
-        self.roll_forward_btn.setEnabled(self.scheduler.can_roll_forward())
-        self.roll_backward_btn.setEnabled(self.scheduler.can_roll_backward())
+        self.return_btn.setEnabled(self.scheduler.can_return())
 
-        # 日历预览
+        # 借按钮：检查是否还有任何可借
+        any_can_borrow = any(self.scheduler.can_borrow_slot(s["name"]) for s in p.time_slots)
+        self.borrow_btn.setEnabled(any_can_borrow)
+
         self.refresh_calendar_preview()
 
     def refresh_calendar_preview(self):
-        calendar = self.scheduler.get_calendar()
+        p = self.data.current_parent
+        cal = self.scheduler.get_calendar()
         spd = self.scheduler.slots_per_day()
+        borrowed_set = set()
+        for entry in self.scheduler.get_borrowed_slots_with_meta():
+            _, _, day, slot_idx = entry
+            borrowed_set.add((day, slot_idx))
 
         lines = []
-        for i, (date, plans) in enumerate(calendar):
-            marker = "👉" if i == self.data.current_day else "  "
-            extra_marker = f" [+{self.data.extra_count}额外]" if i == self.data.current_day and self.data.extra_count > 0 else ""
-            lines.append(f"{marker} 第{i+1}天 ({date.toString('MM-dd ddd')}){extra_marker}")
-            for slot_name, plan in plans:
+        for i, (d, plans) in enumerate(cal):
+            marker = "👉" if i == p.current_day else "  "
+            extra_marker = f" [+{len(self.scheduler.get_extra_plans())}借]" if i == p.current_day and self.scheduler.get_extra_plans() else ""
+            lines.append(f"{marker} 第{i+1}天 ({d.toString('MM-dd ddd')}){extra_marker}")
+            for j, (sname, plan) in enumerate(plans):
+                b_mark = "📤" if (i, j) in borrowed_set else "  "
                 content = plan if plan else "·"
-                lines.append(f"    {slot_name}: {content}")
+                lines.append(f"  {b_mark} {sname}: {content}")
             lines.append("")
 
         self.calendar_area.setText("\n".join(lines))
 
-    def on_roll_forward(self):
-        if self.scheduler.all_plans_consumed() and self.data.extra_count == 0:
+    def on_borrow(self):
+        """弹对话框选时间段名"""
+        if self.scheduler.all_consumed():
             QMessageBox.information(self, "提示", "🎉 所有计划/任务已完成！")
             return
-        if self.scheduler.roll_forward():
-            self.refresh()
 
-    def on_roll_backward(self):
-        if self.scheduler.roll_backward():
+        p = self.data.current_parent
+        available = []
+        for slot in p.time_slots:
+            name = slot["name"]
+            if self.scheduler.can_borrow_slot(name):
+                available.append(name)
+        if not available:
+            QMessageBox.warning(self, "提示", "当前无可借的时间段")
+            return
+
+        # 去重（同名时间段只列一次）
+        available = list(dict.fromkeys(available))
+
+        name, ok = QInputDialog.getItem(self, "借指定时间段", "选择要借的时间段:", available, 0, False)
+        if ok and name:
+            if self.scheduler.borrow_slot(name):
+                self.data.save()
+                self.refresh()
+            else:
+                QMessageBox.warning(self, "提示", f"无法借「{name}」")
+
+    def on_return(self):
+        if self.scheduler.return_last_borrowed():
+            self.data.save()
             self.refresh()
 
     def on_next_day(self):
-        """推进到下一天"""
-        self.data.current_day += 1
-        self.data.extra_count = 0  # 切天时重置额外轮
+        p = self.data.current_parent
+        p.current_day += 1
+        p.borrowed_slots = []  # 切天时清空额外轮
         self.data.save()
         self.refresh()
+
+    def on_switch_parent(self):
+        """切换母计划"""
+        names = [p.name for p in self.data.parents]
+        cur_name = self.data.current_parent.name
+        try:
+            cur_idx = names.index(cur_name)
+        except ValueError:
+            cur_idx = 0
+        name, ok = QInputDialog.getItem(self, "切换母计划", "选择母计划:", names, cur_idx, False)
+        if ok and name:
+            self.data.current_parent_idx = names.index(name)
+            self.data.save()
+            self.scheduler = PlanScheduler(self.data.current_parent)
+            self.refresh()
 
 
 # ============== 主窗口 ==============
@@ -641,22 +897,20 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.data = PlanData()
         self.data.load()
-        self.scheduler = PlanScheduler(self.data)
-
-        self.setWindowTitle("RollingPlan v0.1")
-        self.setGeometry(100, 100, 900, 800)
+        self.setWindowTitle("RollingPlan v0.2")
+        self.setGeometry(100, 100, 950, 850)
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        self.editor = PlanEditor(self.data, self.scheduler, self.show_executor)
-        self.executor = PlanExecutor(self.data, self.scheduler, self.show_editor)
+        self.editor = PlanEditor(self.data, self.show_executor)
+        self.executor = PlanExecutor(self.data, self.show_editor)
 
         self.tabs.addTab(self.editor, "📝 计划写入")
         self.tabs.addTab(self.executor, "▶ 计划执行")
 
     def show_executor(self):
-        self.executor = PlanExecutor(self.data, self.scheduler, self.show_editor)
+        self.executor = PlanExecutor(self.data, self.show_editor)
         self.tabs.removeTab(1)
         self.tabs.addTab(self.executor, "▶ 计划执行")
         self.tabs.setCurrentIndex(1)
@@ -670,8 +924,6 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-
-    window = MainWindow()
-    window.show()
-
+    win = MainWindow()
+    win.show()
     sys.exit(app.exec_())
