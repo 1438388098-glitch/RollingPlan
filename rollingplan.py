@@ -32,7 +32,7 @@ class ParentPlan:
         self.time_slots = []
         self.start_date = QDate.currentDate()
         self.current_day = 0
-        self.borrowed_slots = []  # [(slot_name, plan_text), ...] 按借的顺序
+        self.borrowed_slots = []  # [[slot_name, plan, day, slot_idx], ...] 按借的顺序
 
     def to_dict(self):
         return {
@@ -95,6 +95,10 @@ class PlanData:
         if self.current_parent_idx >= len(self.parents):
             self.current_parent_idx = 0
 
+    def has_borrowed(self):
+        """任一母计划是否正在借用额外轮（会因编辑而索引错位）"""
+        return any(bool(p.borrowed_slots) for p in self.parents)
+
     def save(self):
         s = QSettings("RollingPlan", "Data")
         s.setValue("plan_data", json.dumps(self.to_dict(), ensure_ascii=False))
@@ -104,10 +108,13 @@ class PlanData:
         data = s.value("plan_data")
         if data:
             try:
-                self.from_dict(json.loads(data))
+                loaded = json.loads(data)
+                if not isinstance(loaded, dict):
+                    raise ValueError("plan_data 不是 dict")
+                self.from_dict(loaded)
                 return True
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[RollingPlan] 数据加载失败，使用默认数据: {e}")
         return False
 
 
@@ -175,6 +182,15 @@ class PlanScheduler:
                 result.append((day, sname, i, plan))
         return result
 
+    def _borrowed_set(self):
+        """已被借出的 (day, slot_idx) 集合"""
+        result = set()
+        for entry in self.p.borrowed_slots:
+            if len(entry) >= 4:
+                _, _, day, slot_idx = entry
+                result.add((day, slot_idx))
+        return result
+
     def get_borrowed_slots_with_meta(self):
         """额外轮完整信息：[(slot_name, plan, day, slot_idx), ...]"""
         return [tuple(b) for b in self.p.borrowed_slots if len(b) >= 4]
@@ -190,42 +206,41 @@ class PlanScheduler:
     def _future_slot_positions(self):
         """未来可借的位置（day > current_day）:
         [(day, slot_name, slot_idx, plan), ...]
-        按 (day, slot_idx) 顺序"""
+        按 (day, slot_idx) 顺序
+        排除已被借出的位置"""
         spd = self.slots_per_day()
         if spd == 0 or not self.p.plans:
             return []
+        borrowed = self._borrowed_set()
         result = []
         day_count = (len(self.p.plans) + spd - 1) // spd
         for day in range(self.p.current_day + 1, day_count):
             day_plans = self.get_day_plans(day)
             for i, (sname, plan) in enumerate(day_plans):
-                if plan is not None:
+                if plan is not None and (day, i) not in borrowed:
                     result.append((day, sname, i, plan))
         return result
 
     def can_borrow_slot(self, slot_name):
         """能否借指定时间段：从未来位置里找同名未借的"""
-        borrowed_set = set()
-        for entry in self.get_borrowed_slots_with_meta():
-            _, _, day, slot_idx = entry
-            borrowed_set.add((day, slot_idx))
-
         for day, sname, sidx, plan in self._future_slot_positions():
-            if sname == slot_name and (day, sidx) not in borrowed_set:
+            if sname == slot_name:
                 return True
         return False
 
-    def borrow_slot(self, slot_name):
-        """借指定时间段：从未来位置里找同名未借的最近一个"""
-        if not self.can_borrow_slot(slot_name):
-            return False
-        borrowed_set = set()
-        for entry in self.get_borrowed_slots_with_meta():
-            _, _, day, slot_idx = entry
-            borrowed_set.add((day, slot_idx))
+    def available_borrow_names(self):
+        """去重后所有当前可借的时间段名"""
+        names = []
+        for _, sname, _, _ in self._future_slot_positions():
+            if sname not in names:
+                names.append(sname)
+        return names
 
+    def borrow_slot(self, slot_name):
+        """借指定时间段：从未来位置里找同名未借的最近一个
+        借出时拷贝 plan 字符串，防止后续编辑子计划影响额外轮内容"""
         for day, sname, sidx, plan in self._future_slot_positions():
-            if sname == slot_name and (day, sidx) not in borrowed_set:
+            if sname == slot_name:
                 self.p.borrowed_slots.append([sname, plan, day, sidx])
                 self.save_parent()
                 return True
@@ -564,16 +579,23 @@ class PlanEditor(QWidget):
     def add_slot(self):
         name = self.slot_name_input.text().strip()
         count = self.slot_count_input.value()
-        if name:
-            self.data.current_parent.time_slots.append({"name": name, "count": count})
-            self.slot_name_input.clear()
-            self.slot_count_input.setValue(1)
-            self.refresh_all()
-            self.data.save()
+        if not name:
+            return
+        if self.data.has_borrowed():
+            QMessageBox.warning(self, "提示", "当前有母计划正在借用额外轮，无法修改时间段。\n请先退回所有借出的时间段。")
+            return
+        self.data.current_parent.time_slots.append({"name": name, "count": count})
+        self.slot_name_input.clear()
+        self.slot_count_input.setValue(1)
+        self.refresh_all()
+        self.data.save()
 
     def edit_slot(self):
         cur = self.slot_list.currentRow()
         if cur < 0:
+            return
+        if self.data.has_borrowed():
+            QMessageBox.warning(self, "提示", "当前有母计划正在借用额外轮，无法修改时间段。\n请先退回所有借出的时间段。")
             return
         slot = self.data.current_parent.time_slots[cur]
         new_name, ok = QInputDialog.getText(self, "编辑", "新名称:", text=slot["name"])
@@ -588,11 +610,17 @@ class PlanEditor(QWidget):
         cur = self.slot_list.currentRow()
         if cur < 0:
             return
+        if self.data.has_borrowed():
+            QMessageBox.warning(self, "提示", "当前有母计划正在借用额外轮，无法修改时间段。\n请先退回所有借出的时间段。")
+            return
         self.data.current_parent.time_slots.pop(cur)
         self.refresh_all()
         self.data.save()
 
     def slot_up(self):
+        if self.data.has_borrowed():
+            QMessageBox.warning(self, "提示", "当前有母计划正在借用额外轮，无法修改时间段。")
+            return
         cur = self.slot_list.currentRow()
         if cur > 0:
             s = self.data.current_parent.time_slots
@@ -602,6 +630,9 @@ class PlanEditor(QWidget):
             self.data.save()
 
     def slot_down(self):
+        if self.data.has_borrowed():
+            QMessageBox.warning(self, "提示", "当前有母计划正在借用额外轮，无法修改时间段。")
+            return
         cur = self.slot_list.currentRow()
         s = self.data.current_parent.time_slots
         if 0 <= cur < len(s) - 1:
@@ -745,8 +776,9 @@ class PlanExecutor(QWidget):
 
     def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False):
         row = QHBoxLayout()
-        prefix = "⤴ " if is_extra else ""
-        color = "#2E7D32" if is_extra else "black"
+        prefix = "⤴ " if is_extra else "  "
+        color = "#1B5E20" if is_extra else "black"
+        bg = "#E8F5E9" if is_extra else None
 
         slot_label = QLabel(f"{prefix}{slot_name}:")
         slot_label.setMinimumWidth(120 if is_extra else 80)
@@ -763,8 +795,10 @@ class PlanExecutor(QWidget):
         row.addStretch()
 
         container = QWidget()
+        if bg:
+            container.setStyleSheet(f"background-color: {bg}; border-left: 3px solid {color}; padding-left: 4px;")
         cl = QHBoxLayout(container)
-        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setContentsMargins(6, 2, 6, 2)
         cl.addLayout(row)
         parent_layout.addWidget(container)
 
@@ -808,8 +842,7 @@ class PlanExecutor(QWidget):
         self.return_btn.setEnabled(self.scheduler.can_return())
 
         # 借按钮：检查是否还有任何可借
-        any_can_borrow = any(self.scheduler.can_borrow_slot(s["name"]) for s in p.time_slots)
-        self.borrow_btn.setEnabled(any_can_borrow)
+        self.borrow_btn.setEnabled(bool(self.scheduler.available_borrow_names()))
 
         self.refresh_calendar_preview()
 
@@ -841,18 +874,10 @@ class PlanExecutor(QWidget):
             QMessageBox.information(self, "提示", "🎉 所有计划/任务已完成！")
             return
 
-        p = self.data.current_parent
-        available = []
-        for slot in p.time_slots:
-            name = slot["name"]
-            if self.scheduler.can_borrow_slot(name):
-                available.append(name)
+        available = self.scheduler.available_borrow_names()
         if not available:
             QMessageBox.warning(self, "提示", "当前无可借的时间段")
             return
-
-        # 去重（同名时间段只列一次）
-        available = list(dict.fromkeys(available))
 
         name, ok = QInputDialog.getItem(self, "借指定时间段", "选择要借的时间段:", available, 0, False)
         if ok and name:
@@ -869,6 +894,28 @@ class PlanExecutor(QWidget):
 
     def on_next_day(self):
         p = self.data.current_parent
+        scheduler = self.scheduler
+        day_plans = scheduler.get_day_plans(p.current_day)
+        day_has_content = any(plan is not None for _, plan in day_plans)
+        can_still_borrow = bool(scheduler.available_borrow_names())
+        can_still_return = scheduler.can_return()
+
+        unfinished = []
+        if day_has_content:
+            unfinished.append("当天还有时间段未完成")
+        if can_still_borrow:
+            unfinished.append("还有可借的时间段")
+        if can_still_return:
+            unfinished.append("已借的额外轮可退回")
+
+        if unfinished:
+            msg = "今天是第 {} 天，还有未完成项：\n  • {}\n\n确认进入下一天？".format(
+                p.current_day + 1, "\n  • ".join(unfinished)
+            )
+            reply = QMessageBox.question(self, "确认下一天", msg)
+            if reply != QMessageBox.Yes:
+                return
+
         p.current_day += 1
         p.borrowed_slots = []  # 切天时清空额外轮
         self.data.save()
