@@ -1410,13 +1410,17 @@ _LOG = _setup_logger()
 
 
 def _log(msg):
-    """写日志（如果有 logger），同时 stderr"""
+    """写日志（如果有 logger），同时 stderr（但 --windowed 下 stderr 可能为 None）"""
     if _LOG:
         try:
             _LOG.debug(msg)
         except Exception:
             pass
-    sys.stderr.write(f"[RollingPlan] {msg}\n")
+    # stderr 在 PyInstaller --windowed 下是 None，必须 try/except
+    try:
+        sys.stderr.write(f"[RollingPlan] {msg}\n")
+    except Exception:
+        pass
 
 
 def apply_theme(app: QApplication, theme_name: str):

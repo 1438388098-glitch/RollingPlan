@@ -112,6 +112,58 @@ def test_apply_theme_missing_lib():
             sys.modules['qdarktheme'] = saved
 
 
+def test_log_works_when_stderr_is_none():
+    """PyInstaller --windowed 模式下 sys.stderr 是 None。
+    _log() 必须不崩（只写文件，不写 stderr）。
+    """
+    print("\n=== test_log_works_when_stderr_is_none ===")
+    import sys
+    import rollingplan
+    saved_stderr = sys.stderr
+    try:
+        sys.stderr = None
+        rollingplan._log("test message with stderr=None")
+        assert_true(True, "_log 在 stderr=None 时不崩")
+    except Exception as e:
+        assert_true(False, f"_log 崩了: {e}")
+    finally:
+        sys.stderr = saved_stderr
+
+
+def test_apply_theme_works_when_stderr_is_none():
+    """apply_theme 在 stderr=None 时也必须不崩。"""
+    print("\n=== test_apply_theme_works_when_stderr_is_none ===")
+    import sys
+    saved_stderr = sys.stderr
+    try:
+        sys.stderr = None
+        apply_theme(app, "dark")
+        apply_theme(app, "light")
+        # auto 在 WSL offscreen 下 darkdetect 会卡，测 dark/light 足够
+        assert_true(True, "apply_theme 在 stderr=None 时不崩")
+    except Exception as e:
+        assert_true(False, f"apply_theme 崩了: {e}")
+    finally:
+        sys.stderr = saved_stderr
+
+
+def test_main_block_works_when_stderr_is_none():
+    """__main__ 入口在 stderr=None 时必须能跑完"""
+    print("\n=== test_main_block_works_when_stderr_is_none ===")
+    import sys
+    saved_stderr = sys.stderr
+    try:
+        sys.stderr = None
+        # 直接调用 _log 不经过 QApplication（避免测试需要 GUI）
+        from rollingplan import _log
+        _log("test from main")
+        assert_true(True, "__main__ 风格调用不崩")
+    except Exception as as_e:
+        assert_true(False, f"_log 崩了: {as_e}")
+    finally:
+        sys.stderr = saved_stderr
+
+
 def test_theme_persisted_to_qsettings():
     print("\n=== test_theme_persisted_to_qsettings ===")
     # 清掉之前可能的残留
@@ -206,6 +258,9 @@ def main():
     test_theme_options()
     test_apply_theme_no_crash()
     test_apply_theme_missing_lib()
+    test_log_works_when_stderr_is_none()    # 新增
+    test_apply_theme_works_when_stderr_is_none()  # 新增
+    test_main_block_works_when_stderr_is_none()   # 新增
     test_theme_persisted_to_qsettings()
     test_editor_theme_combo_setup()
     test_editor_theme_change_writes_qsettings()
