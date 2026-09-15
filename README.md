@@ -13,6 +13,7 @@
   - 进度跟着走：完成一条，`进度` +1
   - 顶部加一行「🗂 今天已完成：…」，归档了什么看得见
 - **额外轮不再带时段名**：时段只是当天的栏位，不是计划本身的属性。点「加一个」就是把队列里下一个拉进额外轮（只显示计划内容）；当天有空行时它会滚上来，不在额外轮区重复显示
+- **「添加指定」改成按计划挑**：从后面还没安排的计划清单里选一条提前安排（以前是按「时段名」挑，时段只剩栏位意思之后那样很别扭）
 - **状态字段变了**（`archived` / `archived_base` / `consumed` 取代 v0.8 的 `completed_today`）；`from_dict` 会把 v0.8 的旧存档自动迁移过来
 - 制定页的「计划预览」改用 `raw_calendar()`（铺开看计划怎么分，不受进度影响）；执行页的「计划日历」从今天起往后看
 - 新增 `test_scroll_v09.py`：85 断言
@@ -137,7 +138,9 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 - `get_calendar()` / `raw_calendar()`：执行页日历（从今天往后） / 制定页预览（整段铺开）
 - `complete_today_slot(slot_idx)`：完成这一格 → 归档 + 队列上滚一格
 - `undo_complete()` / `can_undo_complete()`：撤销今天最近一次完成
-- `borrow_next()` / `borrow_slot(name)`：加一个 / 添加指定（进额外轮）
+- `borrow_next()` / `borrow_plan(计划)`：加一个 / 添加指定（进额外轮）
+- `available_pick_plans()`：添加指定的候选（后面还没安排的计划，去重）
+- `borrow_slot(name)` / `available_borrow_names()`：v0.3~v0.8 的按时段名入口，UI 已不用（保留给旧调用和回归测试）
 - `return_last_borrowed()`：退回额外轮最后一个
 - `get_progress()`：进度（已推进 / 总数，完成的也算）
 - `all_consumed()`：判断全部完成
@@ -150,10 +153,10 @@ python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
 python test_reset_v04.py            # v0.4 重置进度（24 断言）
 python test_theme_v05.py            # v0.7 QSS 主题（38 断言）
 python test_minimal_v06.py          # v0.6 极简 UI 折叠（32 断言）
-python test_scroll_v09.py           # v0.9 完成并滚动 / 撤销 / 额外轮（85 断言）
+python test_scroll_v09.py           # v0.9 完成并滚动 / 撤销 / 额外轮（99 断言）
 ```
 
-共 6 个文件 / 261 断言，全过。
+共 6 个文件 / 275 断言，全过。
 
 覆盖：
 - 单母计划 + 借指定时间段

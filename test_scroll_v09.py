@@ -457,6 +457,73 @@ def test_executor_return_undoes_complete():
     assert_eq(ex.scheduler.get_day_plans(0)[0], ("早", "任务1"), "任务1 回到「早」")
 
 
+def test_available_pick_plans():
+    """添加指定：候选是「后面还没安排的计划」，按队列顺序，去重"""
+    print("\n=== test_available_pick_plans ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    assert_eq(s.available_pick_plans(),
+              ["任务4", "任务5", "任务6", "任务7", "任务8", "任务9"],
+              "候选 = 第2天起的计划（今天的三条不算）")
+    s.borrow_plan("任务5")
+    assert_eq(s.available_pick_plans(),
+              ["任务4", "任务6", "任务7", "任务8", "任务9"],
+              "挑走一条 → 候选里不再有它（任务5）")
+
+
+def test_borrow_plan_not_head():
+    """可以挑后面的一条（不是队首）：它进额外轮，且不乱序、不丢"""
+    print("\n=== test_borrow_plan_not_head ===")
+    d = make_data()
+    p = d.parents[0]
+    s = PlanScheduler(p)
+    assert_true(s.borrow_plan("任务7"), "挑中第3天的任务7")
+    assert_eq(p.borrowed_slots[0][1], "任务7", "额外轮里是任务7")
+    st = s.today_state()
+    assert_eq([x for _, x in st["rows"]], ["任务1", "任务2", "任务3"], "今天的行不受影响")
+    assert_eq(st["extra_left"], ["任务7"], "任务7 先在额外轮待着")
+    # 把它前面的都完成掉，它会自然滚上来
+    for _ in range(6):
+        s.complete_today_slot(0)
+    st = s.today_state()
+    assert_eq([x for _, x in st["rows"]], ["任务7", "任务8", "任务9"], "任务7 滚到今天第一格")
+    assert_eq(st["extra_left"], [], "滚上来后不再重复显示在额外轮")
+
+
+def test_borrow_plan_rejects_unknown_or_today():
+    print("\n=== test_borrow_plan_rejects_unknown_or_today ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    assert_eq(s.borrow_plan("任务1"), False, "今天的任务1 不能「提前安排」")
+    assert_eq(s.borrow_plan("不存在"), False, "不存在的计划 → False")
+    assert_eq(s.borrow_plan("任务4"), True, "后面的任务4 可以")
+
+
+def test_executor_add_specific_picks_plan():
+    """UI：添加指定 → 选一条计划 → 进额外轮（不带时段名）"""
+    print("\n=== test_executor_add_specific_picks_plan ===")
+    d = make_data()
+    ex = PlanExecutor(d, lambda: None)
+    ex.show()
+    app.processEvents()
+    original = rollingplan.QInputDialog.getItem
+    try:
+        rollingplan.QInputDialog.getItem = staticmethod(lambda *a, **k: ("任务6", True))
+        ex.on_add_specific()
+        app.processEvents()
+    finally:
+        rollingplan.QInputDialog.getItem = original
+    assert_eq(d.parents[0].borrowed_slots[0][1], "任务6", "挑中的任务6 进了额外轮")
+    extra_texts = []
+    for i in range(ex.extra_layout.count()):
+        item = ex.extra_layout.itemAt(i)
+        if item and item.widget():
+            extra_texts += [c.text() for c in item.widget().findChildren(rollingplan.QLabel)]
+    assert_true(any("任务6" in t for t in extra_texts), "额外轮显示 任务6")
+    assert_true(not any("早" in t or "中" in t or "晚" in t for t in extra_texts),
+                "额外轮不带时段名")
+
+
 def main():
     test_complete_rolls_next_plan_up()
     test_next_day_shifts_too_no_duplicate()
@@ -480,6 +547,10 @@ def main():
     test_executor_complete_rolls_row_and_shows_undo()
     test_executor_extra_row_has_no_slot_name()
     test_executor_return_undoes_complete()
+    test_available_pick_plans()
+    test_borrow_plan_not_head()
+    test_borrow_plan_rejects_unknown_or_today()
+    test_executor_add_specific_picks_plan()
 
     print()
     print(f"PASS={PASS_COUNT}  FAIL={FAIL_COUNT}")

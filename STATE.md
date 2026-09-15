@@ -30,14 +30,20 @@ PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计�
   当它出现在今天的行上时算「滚上来了」，不在额外轮区重复显示
 - **退回** = 优先**撤销今天最近一次完成**（按钮文案变 `↶ 撤销完成`）；今天没完成可撤时
   才退额外轮最后一个（文案 `⤴ 退回`）
+- **添加指定**（v0.9 起）= 从**后面还没安排的计划清单**里挑一条提前安排
+  （以前是按「时段名」挑；时段只剩栏位意思之后那样很别扭）。新增
+  `available_pick_plans()` / `borrow_plan(计划)`
 - **进度** = 完成一条 +1
 - 顶部多一行「🗂 今天已完成：…」，归档了什么看得见
 
 **代码**：
 - `ParentPlan` 新增 `archived` / `archived_base` / `consumed`（取代 v0.8 的 `completed_today`）
 - `PlanScheduler` 新增 `pending()` / `today_state()` / `done_today()` / `total_done()` /
-  `undo_complete()` / `can_undo_complete()` / `raw_calendar()`；重写 `get_day_plans` /
-  `get_calendar` / `complete_today_slot` / `_future_slot_positions` / `get_progress` / `all_consumed`
+  `undo_complete()` / `can_undo_complete()` / `raw_calendar()` / `available_pick_plans()` /
+  `borrow_plan()`；重写 `get_day_plans` / `get_calendar` / `complete_today_slot` /
+  `_future_slot_positions` / `get_progress` / `all_consumed`
+- `_future_slot_positions()` 里「已在额外轮里的要跳过」是**按内容扣减**的，不是按下标数量 ——
+  「添加指定」可以挑一条不在队首的，按下标跳会跳错（重名计划各算一次）
 - `PlanExecutor`：日内行 / 额外轮 / 日历预览 / 退回按钮改造；新增「今天已完成」标签
 - 制定页「计划预览」改用 `raw_calendar()`（铺开看计划怎么分，不受进度影响）
 - **旧存档自动迁移**：`from_dict` 见到 v0.8 的 `completed_today`（slot 序号）→ 转成计划内容
@@ -84,7 +90,7 @@ PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计�
 
 ## 测试状态
 
-**6 个测试文件 / 总计 261 个断言全过，0 失败**（2026-09-15 22:05 于验收副本 .venv 实测）
+**6 个测试文件 / 总计 275 个断言全过，0 失败**（2026-09-15 22:20 于验收副本 .venv 实测）
 
 | 测试文件 | 断言 | 覆盖 |
 |----------|------|------|
@@ -93,7 +99,7 @@ PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计�
 | `test_reset_v04.py` | **24** | v0.4 重置进度（保留 plans/time_slots/start_date，多分类隔离） |
 | `test_theme_v05.py` | **38** | v0.7 QSS 主题 + QSettings 持久化 + stderr=None 不崩 |
 | `test_minimal_v06.py` | **32** | v0.6 极简 UI 折叠 + 主区居中 + 大按钮 |
-| `test_scroll_v09.py` | **85** | v0.9 队列上滚 / 不重复不丢 / 撤销完成 / 额外轮滚动 / 旧档迁移 / UI |
+| `test_scroll_v09.py` | **99** | v0.9 队列上滚 / 不重复不丢 / 撤销完成 / 额外轮滚动 / 添加指定 / 旧档迁移 / UI |
 
 `test_complete_v08.py` 已删（它断言的正是 v0.8 那段错的行为，重写成了 `test_scroll_v09.py`）。
 
@@ -131,9 +137,9 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
    - 撤销栈（现在只能撤「完成」，且只限今天）
    - **布局重设计**（执行页只显示「今天 + 加一个/今天完成」）
    - **今日模式**（独立第三页）
-3. **代码重构**（未做）：单文件 2004 行可拆 `model.py` / `scheduler.py` / `editor.py` / `executor.py` / `theme.py`
-4. **待用户定**：`添加指定` 现在是「按时段名挑一条未来的计划」。v0.9 之后时段只是栏位，
-   这个入口按名字挑其实有点别扭 —— 要不要改成「从计划清单里挑一条提前安排」？
+3. **代码重构**（未做）：单文件 2000+ 行可拆 `model.py` / `scheduler.py` / `editor.py` / `executor.py` / `theme.py`
+   - 顺带可以清掉 `borrow_slot()` / `available_borrow_names()`（v0.3~v0.8 的按时段名入口，
+     UI 已经不用了；留着只是为了旧调用和 test_v2_2 的回归测试）
 
 ## 下次新会话该做什么
 
@@ -141,7 +147,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 
 **选项 A**：从「还没做的方向 2」里挑下一个新功能（快捷键改动最小、见效最快）
 **选项 B**：重构分模块（按 5 个模块拆 model/scheduler/editor/executor/theme）
-**选项 C**：先问用户 v0.9 在真机上用起来对不对（**headless 测试 = 261 断言全过，
+**选项 C**：先问用户 v0.9 在真机上用起来对不对（**headless 测试 = 275 断言全过，
 但视觉/手感没有真机确认** —— 参见下方备忘）
 
 ## 备忘

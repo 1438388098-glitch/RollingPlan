@@ -437,20 +437,30 @@ class PlanScheduler:
 
     def _future_slot_positions(self):
         """还没进今天、也没进额外轮的位置：
-        [(day, slot_name, slot_idx, plan), ...]，按队列顺序"""
+        [(day, slot_name, slot_idx, plan), ...]，按队列顺序
+
+        v0.9：已经在额外轮里的那几条要跳过。按「内容」扣减而不是按下标 ——
+        因为「添加指定」可以挑一条不在队首的，按下标数量跳会跳错
+        （同一个内容出现多次时，各算一次，所以重名的计划也能分别安排）
+        """
         spd = self.slots_per_day()
         if spd == 0:
             return []
         q = self.pending()
         st = self.today_state()
-        start = min(max(self.p.consumed, 0), len(q)) + st["queue_used"] + len(st["extras"])
+        start = min(max(self.p.consumed, 0), len(q)) + st["queue_used"]
+        skip = list(st["extras"])
         slots = self._expand_slots()
         result = []
         for k in range(start, len(q)):
+            plan = q[k]
+            if plan in skip:
+                skip.remove(plan)   # 这一条已经在额外轮里了
+                continue
             off = k - self.p.consumed
             day = self.p.current_day + (off // spd if off >= 0 else 0)
             slot_idx = off % spd
-            result.append((day, slots[slot_idx][0], slot_idx, q[k]))
+            result.append((day, slots[slot_idx][0], slot_idx, plan))
         return result
 
     def can_borrow_slot(self, slot_name):
@@ -473,6 +483,29 @@ class PlanScheduler:
         self.p.borrowed_slots.append([sname, plan, day, sidx])
         return True
 
+    def available_pick_plans(self):
+        """还能提前安排的计划内容（去重，按队列顺序）
+
+        v0.9：用户按「计划」挑，不再按时段名挑 —— 时段只是当天的栏位。
+        """
+        out = []
+        for _, _, _, plan in self._future_slot_positions():
+            if plan not in out:
+                out.append(plan)
+        return out
+
+    def borrow_plan(self, plan_text):
+        """添加指定：把后面某一条还没安排的拉进额外轮"""
+        for day, sname, sidx, plan in self._future_slot_positions():
+            if plan == plan_text:
+                self.p.borrowed_slots.append([sname, plan, day, sidx])
+                return True
+        return False
+
+    # ---- 下面两个是 v0.3~v0.8 的「按时段名借」入口，UI 已经不用了 ----
+    # （保留是为了兼容旧调用和 test_v2_2 的回归测试；两者的候选位置都来自
+    #  _future_slot_positions()，逻辑是同一套）
+
     def available_borrow_names(self):
         """去重后所有还能加的位置名"""
         names = []
@@ -482,7 +515,7 @@ class PlanScheduler:
         return names
 
     def borrow_slot(self, slot_name):
-        """添加指定：把后面坐在这个位置上的最近一条拉进额外轮"""
+        """添加指定（旧入口）：把后面坐在这个位置上的最近一条拉进额外轮"""
         for day, sname, sidx, plan in self._future_slot_positions():
             if sname == slot_name:
                 self.p.borrowed_slots.append([sname, plan, day, sidx])
@@ -1470,23 +1503,23 @@ class PlanExecutor(QWidget):
             self.refresh()
 
     def on_add_specific(self):
-        """添加指定时段：弹对话框选时段名"""
+        """添加指定：从后面还没安排的里挑一条提前安排（v0.9：按计划挑，不按时段名）"""
         if self.scheduler.all_consumed():
             QMessageBox.information(self, "提示", "🎉 全部计划都已完成！")
             return
 
-        available = self.scheduler.available_borrow_names()
+        available = self.scheduler.available_pick_plans()
         if not available:
-            QMessageBox.information(self, "提示", "没有可安排的额外计划了")
+            QMessageBox.information(self, "提示", "没有可提前安排的计划了")
             return
 
-        name, ok = QInputDialog.getItem(self, "添加额外安排", "想额外安排哪个时段？", available, 0, False)
-        if ok and name:
-            if self.scheduler.borrow_slot(name):
+        plan, ok = QInputDialog.getItem(self, "添加指定", "想提前安排哪一条？", available, 0, False)
+        if ok and plan:
+            if self.scheduler.borrow_plan(plan):
                 self.data.save()
                 self.refresh()
             else:
-                QMessageBox.warning(self, "提示", f"无法添加「{name}」")
+                QMessageBox.warning(self, "提示", f"无法添加「{plan}」")
 
     def on_return(self):
         """退回：优先撤销今天最近一次「完成」，没有了再退额外轮最后一个"""
