@@ -4,7 +4,12 @@
 
 ## 版本
 
-### v0.3（当前）
+### v0.4（当前）
+- **导入 JSON**：📥 按钮 — 从 JSON 文件加载并覆盖当前数据。先校验结构（parents / plans / time_slots 等基础字段），失败给出具体原因；版本号不匹配拒收。
+- **导出 JSON**：📤 按钮 — 导出当前所有分类为 JSON（含 `version` + `exported_at` 时间戳 + `data` 段）。默认文件名 `RollingPlan_backup_YYYY-MM-DD.json`。
+- 数据格式向后兼容无 wrapper 的旧版 `to_dict()` 输出。
+
+### v0.3
 - **面向普通用户**：所有界面文案改为日常语言（"加一个"替代"借指定时间段"，"分类"替代"母计划"，"时段"替代"时间段"等）
 - **加一个**（默认主按钮，蓝底）：自动顺延下一个未完成的计划，不问时段名
 - **添加指定**（次要按钮，灰字）：弹对话框选时段名（旧的"借指定"功能保留）
@@ -76,7 +81,8 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 ## 测试
 
 ```bash
-python test_v2_2.py
+python test_v2_2.py          # v0.3 核心逻辑（30 断言）
+python test_import_export_v04.py   # v0.4 导入/导出（49 断言）
 ```
 
 覆盖：
@@ -84,3 +90,6 @@ python test_v2_2.py
 - 链式借（借完明天同名，自动借后天）
 - 同时间段 count>1 时借的边界
 - 多母计划独立
+- 导入/导出 round-trip
+- JSON 结构校验失败处理（语法错/缺字段/类型错/版本不匹配）
+- 旧格式向后兼容

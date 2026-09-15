@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox, QTabWidget,
-    QGroupBox, QInputDialog
+    QGroupBox, QInputDialog, QFileDialog,
 )
 from PyQt5.QtCore import Qt, QDate, QSettings
 from PyQt5.QtGui import QFont
@@ -116,6 +116,108 @@ class PlanData:
             except Exception as e:
                 print(f"[RollingPlan] 数据加载失败，使用默认数据: {e}")
         return False
+
+    # ====== v0.4 导入/导出 ======
+
+    EXPORT_VERSION = "0.4"
+
+    def export_to_dict(self):
+        """导出格式：纯 to_dict() + 版本/时间戳"""
+        from datetime import datetime
+        return {
+            "version": self.EXPORT_VERSION,
+            "exported_at": datetime.now().isoformat(timespec="seconds"),
+            "data": self.to_dict(),
+        }
+
+    def export_to_file(self, path):
+        """写入 JSON 文件。返回 (success, message)"""
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.export_to_dict(), f, ensure_ascii=False, indent=2)
+            return True, f"已导出到 {path}"
+        except Exception as e:
+            return False, f"导出失败: {e}"
+
+    def import_from_file(self, path):
+        """从 JSON 文件加载。先校验再覆盖。
+        返回 (success, message, stats)：
+          - success=True: message=成功说明, stats={"parents": N, "plans_total": M, "borrowed_total": K}
+          - success=False: message=具体失败原因, stats=None
+        """
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except FileNotFoundError:
+            return False, f"文件不存在: {path}", None
+        except json.JSONDecodeError as e:
+            return False, f"JSON 解析失败: {e}", None
+        except Exception as e:
+            return False, f"读取失败: {e}", None
+
+        # 校验
+        ok, err = self._validate_import_payload(raw)
+        if not ok:
+            return False, err, None
+
+        # 取出 data 段；向后兼容无 wrapper 的旧格式
+        data = raw.get("data", raw)
+
+        try:
+            self.from_dict(data)
+        except Exception as e:
+            return False, f"数据结构异常: {e}", None
+
+        # 统计
+        parents = len(self.parents)
+        plans_total = sum(len(p.plans) for p in self.parents)
+        borrowed_total = sum(len(p.borrowed_slots) for p in self.parents)
+        stats = {
+            "parents": parents,
+            "plans_total": plans_total,
+            "borrowed_total": borrowed_total,
+        }
+        return True, "导入成功", stats
+
+    @staticmethod
+    def _validate_import_payload(raw):
+        """校验导入文件结构。返回 (ok, error_msg)"""
+        if not isinstance(raw, dict):
+            return False, "文件根必须是 JSON 对象"
+        # version 字段（可选但若存在则校验）
+        ver = raw.get("version")
+        if ver is not None and ver != PlanData.EXPORT_VERSION:
+            return False, f"版本不兼容: 文件={ver}, 当前={PlanData.EXPORT_VERSION}"
+        data = raw.get("data", raw)
+        if not isinstance(data, dict):
+            return False, "data 段必须是 JSON 对象"
+        parents = data.get("parents")
+        if not isinstance(parents, list):
+            return False, "parents 必须是数组"
+        if len(parents) == 0:
+            return False, "parents 不能为空（至少 1 个分类）"
+        # 每个 parent 基础字段
+        for i, p in enumerate(parents):
+            if not isinstance(p, dict):
+                return False, f"第 {i+1} 个分类不是对象"
+            for field in ("name", "plans", "time_slots"):
+                if field not in p:
+                    return False, f"第 {i+1} 个分类缺字段 '{field}'"
+            if not isinstance(p["name"], str):
+                return False, f"第 {i+1} 个分类的 name 不是字符串"
+            if not isinstance(p["plans"], list):
+                return False, f"第 {i+1} 个分类的 plans 不是数组"
+            if not isinstance(p["time_slots"], list):
+                return False, f"第 {i+1} 个分类的 time_slots 不是数组"
+            # plans 内每项必须是字符串
+            for j, plan in enumerate(p["plans"]):
+                if not isinstance(plan, str):
+                    return False, f"第 {i+1} 个分类的第 {j+1} 条计划不是字符串"
+            # time_slots 内每项必须是 {name, count} 对象
+            for j, slot in enumerate(p["time_slots"]):
+                if not isinstance(slot, dict) or "name" not in slot:
+                    return False, f"第 {i+1} 个分类的第 {j+1} 个时段格式错误"
+        return True, ""
 
 
 # ============== 核心调度 ==============
@@ -304,10 +406,11 @@ class PlanScheduler:
 # ============== 写入界面 ==============
 
 class PlanEditor(QWidget):
-    def __init__(self, data: PlanData, on_switch_to_exec):
+    def __init__(self, data: PlanData, on_switch_to_exec, on_data_reloaded=None):
         super().__init__()
         self.data = data
         self.on_switch_to_exec = on_switch_to_exec
+        self.on_data_reloaded = on_data_reloaded  # v0.4：导入后通知主窗口刷新 executor
         self.scheduler = PlanScheduler(data.current_parent)
         self.init_ui()
         self.refresh_all()
@@ -318,6 +421,19 @@ class PlanEditor(QWidget):
         title = QLabel("日常计划管理 — 制定计划")
         title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         layout.addWidget(title)
+
+        # ============ 导入/导出（v0.4）============
+        io_row = QHBoxLayout()
+        io_row.addStretch()
+        import_btn = QPushButton("📥 导入 JSON")
+        import_btn.setStyleSheet("color: #666;")
+        import_btn.clicked.connect(self.on_import)
+        io_row.addWidget(import_btn)
+        export_btn = QPushButton("📤 导出 JSON")
+        export_btn.setStyleSheet("color: #666;")
+        export_btn.clicked.connect(self.on_export)
+        io_row.addWidget(export_btn)
+        layout.addLayout(io_row)
 
         # ============ 分类列表 ============
         parent_group = QGroupBox("计划分类（工作、学习、健身……可多个）")
@@ -662,6 +778,73 @@ class PlanEditor(QWidget):
         self.data.save()
         self.preview_calendar()
 
+    # ====== v0.4 导入/导出 ======
+
+    def on_export(self):
+        """导出当前所有分类为 JSON"""
+        self.save_current_to_parent()
+        self.data.save()  # 确保磁盘最新
+        from datetime import date
+        default_name = f"RollingPlan_backup_{date.today().isoformat()}.json"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出计划数据", default_name,
+            "JSON 文件 (*.json);;所有文件 (*)",
+        )
+        if not path:
+            return
+        ok, msg = self.data.export_to_file(path)
+        if ok:
+            QMessageBox.information(self, "导出成功", msg)
+        else:
+            QMessageBox.warning(self, "导出失败", msg)
+
+    def on_import(self):
+        """从 JSON 导入。会覆盖当前所有数据。"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入计划数据", "",
+            "JSON 文件 (*.json);;所有文件 (*)",
+        )
+        if not path:
+            return
+
+        ok, msg, stats = self.data.import_from_file(path)
+        if not ok:
+            QMessageBox.warning(self, "导入失败", msg)
+            return
+
+        # 校验失败分支已返回；此处 stats 必非 None
+        assert stats is not None
+        s_parents = stats["parents"]
+        s_plans = stats["plans_total"]
+        s_borrowed = stats["borrowed_total"]
+
+        # 确认覆盖
+        confirm = QMessageBox.question(
+            self, "确认导入",
+            f"将覆盖当前所有数据：\n"
+            f"  • 分类数：{s_parents}\n"
+            f"  • 计划总数：{s_plans}\n"
+            f"  • 当前未完成的额外安排：{s_borrowed}\n\n"
+            f"确认导入？此操作会覆盖现有数据。",
+        )
+        if confirm != QMessageBox.Yes:
+            # 回滚——重新加载磁盘上的旧数据
+            self.data.load()
+            self.refresh_all()
+            return
+
+        # 写入磁盘 + 通知主窗口刷 executor + 刷自己
+        self.data.save()
+        if self.on_data_reloaded:
+            self.on_data_reloaded()
+        self.refresh_all()
+        QMessageBox.information(
+            self, "导入成功",
+            f"已导入：分类 {s_parents} 个，"
+            f"计划 {s_plans} 条，"
+            f"额外安排 {s_borrowed} 条。",
+        )
+
     def preview_calendar(self):
         self.save_current_to_parent()
         self.scheduler = PlanScheduler(self.data.current_parent)
@@ -982,10 +1165,18 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        self.editor = PlanEditor(self.data, self.show_executor)
+        self.editor = PlanEditor(
+            self.data, self.show_executor, on_data_reloaded=self.reload_executor,
+        )
         self.executor = PlanExecutor(self.data, self.show_editor)
 
         self.tabs.addTab(self.editor, "✏️ 制定计划")
+        self.tabs.addTab(self.executor, "▶ 执行计划")
+
+    def reload_executor(self):
+        """v0.4：导入数据后重建 executor 引用新的 PlanData"""
+        self.executor = PlanExecutor(self.data, self.show_editor)
+        self.tabs.removeTab(1)
         self.tabs.addTab(self.executor, "▶ 执行计划")
 
     def show_executor(self):
