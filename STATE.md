@@ -1,18 +1,41 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-15 22:45
+> **最后更新**：2026-09-15 23:10
 > **会话位置**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **远程**：v0.10 提交后与 `origin/main` 同步（无未推提交）
+> **远程**：v0.11 提交后与 `origin/main` 同步（无未推提交）
 
 ## 项目一句话
 
-PyQt5 桌面应用。**v0.10 已完成**：「日常计划管理」——计划是一列**待办队列**，时段是「当天承装队列的栏位」；每格有两个动作：「仅完成」（标记完成、列表不动）和「完成并滚动」（归档 + 后面整体上滚一格，腾出来的最后一格只由额外轮补）。多分类 + 加一个 / 添加指定 / 退回（可撤销完成）+ 导入导出 JSON + 重置进度 + 三主题（自写 QSS）+ 冷调极简 UI。
+PyQt5 桌面应用。**v0.11 已完成**：「日常计划管理」——计划是一列**待办队列**，时段是「当天承装队列的栏位」。每一格四个动作：仅完成 / 完成并滚动（上滚一格）/ 固定计划（这格不参与上滚）/ 拦截滚动（这格及往后都不参与上滚）；腾出来的位置只由额外轮补，绝不从第二天拉计划。多分类 + 加一个 / 添加指定 / 退回（可撤销完成）+ 导入导出 JSON + 重置进度 + 三主题（自写 QSS）+ 冷调极简 UI。
 
 ## 当前版本
 
-**v0.10** — 18 commits on `main`，已全部 push
+**v0.11** — 19 commits on `main`，已全部推送
 
-## v0.10 核心改动（已落地）—— 仅完成 / 完成并滚动
+## v0.11 核心改动（已落地）—— 固定计划 / 拦截滚动
+
+用户需求：每个时段栏加两个小按钮，用来控制「前面格子完成时，这一格跟不跟着上滚」。
+
+**规则**（`toggle_fixed` / `toggle_blocked`）：
+- **固定计划**（按在某一格）：这一格的原定计划**不参与**前面格子触发的上滚；它后面的照常参与
+  - 早1 中2 晚3，固定「中」，点「早 → 完成并滚动」→ 早3 **📌中2** 晚空
+    （中的 2 没动；晚的 3 越过它挤进了早）
+- **拦截滚动**（按在某一格）：这一格**及往后所有格子**都不参与上滚
+  - 拦截「中」→ 早空 📌中2 📌晚3
+  - 拦截「晚」→ 早2 中空 ⛔晚3
+- 两个都是可切换的小按钮（按下变蓝），行首显示 📌 / ⛔；再按一次取消
+- 腾出来的位置仍然只由额外轮补（额外轮有东西就顶上，没有就空着）
+- 完成的格子会顺手解开它的固定/拦截；切天时固定/拦截归零
+
+**实现**（`today_state()` 的「钉住」机制）：
+- 被钉住的格 = 仅完成(`inplace_done`) / 固定(`slot_fixed`) / 拦截(`slot_blocked`)，
+  统一成 `held[i]`：显示自己的计划、不参与滚动
+- 其余格子按队列顺序取计划，条数上限 = 格数 - 今天已归档条数（quota），
+  且**先按内容把已在手里那几条从池子里扣掉**（否则会重复显示）
+- `queue_used`（切天时 consumed 的步进量）= min(quota, 队列剩余) —— 钉住的计划也在队首这一段里
+- `ParentPlan` 新增 `slot_fixed` / `slot_blocked`（和 `inplace_done` 一样按格数对齐、随天归零）
+
+### v0.10 核心改动（已落地）—— 仅完成 / 完成并滚动
 
 用户反馈（v0.9 之后）：「完成」要有两种 —— 一种只标记、不动列表；一种才滚动。
 而且滚动的最后一格**不许从第二天拉计划**。
@@ -117,7 +140,7 @@ PyQt5 桌面应用。**v0.10 已完成**：「日常计划管理」——计划�
 
 ## 测试状态
 
-**6 个测试文件 / 总计 269 个断言全过，0 失败**（2026-09-15 22:40 于验收副本 .venv 实测）
+**6 个测试文件 / 总计 308 个断言全过，0 失败**（2026-09-15 23:05 于验收副本 .venv 实测）
 
 | 测试文件 | 断言 | 覆盖 |
 |----------|------|------|
@@ -126,15 +149,15 @@ PyQt5 桌面应用。**v0.10 已完成**：「日常计划管理」——计划�
 | `test_reset_v04.py` | **24** | v0.4 重置进度（保留 plans/time_slots/start_date，多分类隔离） |
 | `test_theme_v05.py` | **38** | v0.7 QSS 主题 + QSettings 持久化 + stderr=None 不崩 |
 | `test_minimal_v06.py` | **32** | v0.6 极简 UI 折叠 + 主区居中 + 大按钮 |
-| `test_scroll_v10.py` | **93** | v0.10 仅完成 / 完成并滚动 / 不从第二天补 / 归档备注 / 撤销 / 额外轮 / UI |
+| `test_scroll_v11.py` | **132** | v0.9~v0.11 全部滚动语义：仅完成 / 完成并滚动 / 固定计划 / 拦截滚动 / 归档备注 / 撤销 / 额外轮 / UI |
 
-`test_complete_v08.py`（v0.8 的错行为）和 `test_scroll_v09.py`（v0.9 语义）都已删，
-现由 `test_scroll_v10.py` 覆盖。
+`test_complete_v08.py`（v0.8 的错行为）、`test_scroll_v09.py`、`test_scroll_v10.py` 都已删，
+现由 `test_scroll_v11.py` 覆盖。
 
 跑法：
 ```bash
 cd /mnt/d/0-task/rollingplan
-QT_QPA_PLATFORM=offscreen .venv/bin/python test_scroll_v10.py
+QT_QPA_PLATFORM=offscreen .venv/bin/python test_scroll_v11.py
 ```
 
 ## 构建（exe）
@@ -154,7 +177,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 | Git 仓库 | `/mnt/d/0_git/RollingPlan/` |
 | 验收副本 | `/mnt/d/0-task/rollingplan/` |
 | Python venv | `/mnt/d/0-task/rollingplan/.venv/` |
-| 主程序 | `/mnt/d/0_git/RollingPlan/rollingplan.py`（2171 行 / 81706 字节） |
+| 主程序 | `/mnt/d/0_git/RollingPlan/rollingplan.py`（2299 行 / 87451 字节） |
 | 构建脚本 | `/mnt/d/0_git/RollingPlan/build_windows.bat` |
 
 ## 还没做的方向
@@ -175,8 +198,9 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 
 **选项 A**：从「还没做的方向 2」里挑下一个新功能（快捷键改动最小、见效最快）
 **选项 B**：重构分模块（按 5 个模块拆 model/scheduler/editor/executor/theme）
-**选项 C**：先问用户 v0.10 在真机上用起来对不对（**headless 测试 = 269 断言全过，
-但视觉/手感没有真机确认** —— 参见下方备忘）
+**选项 C**：先问用户 v0.11 在真机上用起来对不对（**headless 测试 = 308 断言全过，
+但视觉/手感没有真机确认** —— 参见下方备忘）。这一版每格有 4 个按钮，
+**行宽可能不够**（headless 看不出拥挤）—— 不行就把「固定计划/拦截滚动」移到第二行
 
 ## 备忘
 
@@ -192,8 +216,13 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
   否则第二天的计划又会滚进今天
 - **「仅完成」是钉住（pin）**：`inplace_done[i]` 记着那一格的计划内容，它在格里不走也不占队列配额；
   滚动的本质是「按 quota 重新从队列取」，所以解开钉子自然就滚了
-- **JSON 字段名**：`borrowed_slots`（额外轮）、`archived` / `archived_base` / `consumed`（v0.9）、
-  `inplace_done` / `slot_notes`（v0.10）。重构时不能改这些键名
+- **v0.11 的「钉住」机制**：`today_state()` 里 `held[i] = inplace_done[i] or slot_fixed[i] or
+  slot_blocked[i]` —— 被钉住的格显示自己的计划、不参与滚动。加新玩法时优先往这里挂，
+  别另起一套（v0.9 就是各写各的才出的错）
+- **池子要按内容扣掉钉住的计划**：`pool = head 去掉 held`，否则同一条计划会同时出现在
+  钉住的格和别的格里
+- **JSON 字段名**：`borrowed_slots`、`archived` / `archived_base` / `consumed`（v0.9）、
+  `inplace_done` / `slot_notes`（v0.10）、`slot_fixed` / `slot_blocked`（v0.11）。重构时不能改这些键名
 - **刷新 UI 时旧控件要 `setParent(None)`**：只 `deleteLater()` 的话，旧按钮会滞留在控件树里
   直到事件循环处理删除 —— 测试会抓到旧的（v0.10 被抓到过），界面上也可能闪一下
 - `from_dict` 会迁移 v0.8 的 `completed_today`（slot 序号 → 计划内容）；v0.8 时期自动借进来的

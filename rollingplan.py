@@ -57,6 +57,9 @@ class ParentPlan:
         # ---- v0.10 每格各自的完成状态 ----
         self.inplace_done = []     # 「仅完成」钉住的格：长度 = 当天格数，每项是计划内容或 None
         self.slot_notes = []       # 每个时段栏的归档备注：[[内容, ...], ...] 长度 = 当天格数
+        # ---- v0.11 「固定计划」/「拦截滚动」 ----
+        self.slot_fixed = []       # 固定住的格：这一格的原定计划不参与上滚
+        self.slot_blocked = []     # 拦截滚动的格：这一格及往后都不参与上滚
 
     def _slots_per_day(self):
         return sum(s.get("count", 1) for s in self.time_slots)
@@ -74,6 +77,8 @@ class ParentPlan:
             "consumed": self.consumed,
             "inplace_done": self.inplace_done,
             "slot_notes": self.slot_notes,
+            "slot_fixed": self.slot_fixed,
+            "slot_blocked": self.slot_blocked,
         }
 
     def from_dict(self, d):
@@ -91,6 +96,9 @@ class ParentPlan:
         # v0.10：每格各自的完成状态（旧存档没有 → 空）
         self.inplace_done = list(d.get("inplace_done") or [])
         self.slot_notes = [list(n) for n in (d.get("slot_notes") or [])]
+        # v0.11：固定计划 / 拦截滚动（旧存档没有 → 空）
+        self.slot_fixed = list(d.get("slot_fixed") or [])
+        self.slot_blocked = list(d.get("slot_blocked") or [])
         # v0.8 旧存档迁移：completed_today 里存的是「当前天的 slot 序号」，转成计划内容
         legacy = d.get("completed_today")
         if isinstance(legacy, list) and legacy and all(isinstance(x, int) for x in legacy):
@@ -120,10 +128,15 @@ class ParentPlan:
         self.consumed = min(max(self.consumed, 0), len(_pending_of(self)))
         # v0.10：每格状态对齐到当天的格数（改过时段数量也能收敛）
         spd = max(0, self._slots_per_day())
-        pinned = list(self.inplace_done) if isinstance(self.inplace_done, list) else []
-        pinned = [x if isinstance(x, str) else None for x in pinned]
-        pinned = (pinned + [None] * spd)[:spd]
-        self.inplace_done = pinned
+
+        def _pad_str_list(vals):
+            vals = list(vals) if isinstance(vals, list) else []
+            vals = [x if isinstance(x, str) else None for x in vals]
+            return (vals + [None] * spd)[:spd]
+
+        self.inplace_done = _pad_str_list(self.inplace_done)
+        self.slot_fixed = _pad_str_list(self.slot_fixed)          # v0.11
+        self.slot_blocked = _pad_str_list(self.slot_blocked)      # v0.11
         notes = self.slot_notes if isinstance(self.slot_notes, list) else []
         notes = [[x for x in (n or []) if isinstance(x, str)] if isinstance(n, list) else [] for n in notes]
         notes = (notes + [[] for _ in range(spd)])[:spd]
@@ -138,6 +151,8 @@ class ParentPlan:
         self.consumed = 0
         self.inplace_done = []
         self.slot_notes = []
+        self.slot_fixed = []
+        self.slot_blocked = []
 
 
 class PlanData:
@@ -360,53 +375,80 @@ class PlanScheduler:
 
     # ---------------- 当天显示 ----------------
 
+    def _pad_str(self, vals, spd):
+        vals = list(vals) if isinstance(vals, list) else []
+        vals = [x if isinstance(x, str) else None for x in vals]
+        return (vals + [None] * spd)[:spd]
+
+    def _pad_notes(self, notes, spd):
+        notes = notes if isinstance(notes, list) else []
+        out = [[x for x in (n or []) if isinstance(x, str)] if isinstance(n, list) else []
+               for n in notes]
+        return (out + [[] for _ in range(spd)])[:spd]
+
     def today_state(self):
         """把今天的显示一次算清（UI 和后续逻辑共用）
 
-        v0.10 规则：
-        - 今天最多从队列里取 (格数 - 今天已归档条数) 条：完成一条，今天就少一格配额，
-          所以腾出来的最后一格只由额外轮补，**不会把第二天的计划滚上来**
-        - 「仅完成」钉住的格子显示那条计划 + 已完成标记，它已经归档、不占队列配额
+        v0.11：每格可以「固定计划」（这一格的原定计划不上移）或
+        「拦截滚动」（这一格及往后的都不上移）。被钉住的格都显示自己的计划、不参与滚动；
+        其余格子按队列顺序取计划。取到的条数上限 = 格数 - 今天已归档条数（quota）——
+        所以腾出来的最后一格只由额外轮补，不会把第二天的计划滚上来。
 
-        rows        [(slot_name, plan|None), ...]  今天的行
-        row_done    [bool, ...]                    「仅完成」钉住的行
-        notes       [[内容, ...], ...]              每个时段栏的归档备注
-        promoted    额外轮里已经滚到今天的行上的那几条（不在额外轮区重复显示）
-        extra_left  额外轮里还没滚上来的（UI「额外安排」区显示这些）
-        queue_used  今天从队列里取走了几条（进下一天时 consumed 就步进这么多）
-        extras      额外轮全部内容
+        rows          [(slot_name, plan|None), ...]  今天的行
+        row_done      [bool, ...]                    「仅完成」的格
+        row_fixed     [bool, ...]                    「固定计划」的格
+        row_blocked   [bool, ...]                    「拦截滚动」的格
+        notes         [[内容, ...], ...]              每格的归档备注
+        promoted      额外轮里已经滚到今天的行上的那几条（不在额外轮区重复显示）
+        extra_left    额外轮里还没滚上来的（UI「额外安排」区显示这些）
+        queue_used    今天从队列里取走了几条（进下一天时 consumed 就步进这么多）
+        extras        额外轮全部内容
         """
         spd = self.slots_per_day()
         if spd == 0:
-            return {"rows": [], "row_done": [], "notes": [], "promoted": [],
-                    "extra_left": [], "queue_used": 0, "extras": []}
+            return {"rows": [], "row_done": [], "row_fixed": [], "row_blocked": [],
+                    "notes": [], "promoted": [], "extra_left": [], "queue_used": 0,
+                    "extras": []}
 
         slots = self._expand_slots()
         q = self.pending()
         start = min(max(self.p.consumed, 0), len(q))
 
-        pinned = list(getattr(self.p, "inplace_done", None) or [])
-        pinned = (pinned + [None] * spd)[:spd]
-        notes = [list(n) for n in (getattr(self.p, "slot_notes", None) or [])]
-        notes = (notes + [[] for _ in range(spd)])[:spd]
-        pinned_count = sum(1 for x in pinned if x)
+        pinned = self._pad_str(getattr(self.p, "inplace_done", None), spd)   # 仅完成
+        fixed = self._pad_str(getattr(self.p, "slot_fixed", None), spd)      # 固定计划
+        blocked = self._pad_str(getattr(self.p, "slot_blocked", None), spd)  # 拦截滚动
+        notes = self._pad_notes(getattr(self.p, "slot_notes", None), spd)
 
-        # 今天还能从队列里拿几格
+        # 被钉住的格：显示自己的计划、不参与滚动
+        held = [pinned[i] or fixed[i] or blocked[i] for i in range(spd)]
+        held_count = sum(1 for x in held if x)
+
         quota = max(0, spd - len(self.done_today()))
-        own = q[start:start + max(0, min(quota, len(q) - start))]
+        head = q[start:start + max(0, min(quota, len(q) - start))]
 
-        # 空出来的格子：先让额外轮顶（排在后一天的顺位之前，且不来自第二天）
+        # 被钉住的计划不放进池子（否则会重复显示）
+        skip = [x for x in held if x]
+        pool = []
+        for plan in head:
+            if plan in skip:
+                skip.remove(plan)
+                continue
+            pool.append(plan)
+
+        movable = spd - held_count
+        own = pool[:movable]
         extras = self.extra_plans()
-        free_slots = max(0, spd - pinned_count - len(own))
-        used_extras = extras[:free_slots]
+        used_extras = extras[:max(0, movable - len(own))]
 
-        rows, row_done = [], []
+        rows, row_done, row_fixed, row_blocked = [], [], [], []
         queue_iter = iter(own)
         extra_iter = iter(used_extras)
         for i in range(spd):
-            if pinned[i]:
-                rows.append((slots[i][0], pinned[i]))
-                row_done.append(True)
+            row_fixed.append(bool(fixed[i]))
+            row_blocked.append(bool(blocked[i]))
+            if held[i]:
+                rows.append((slots[i][0], held[i]))
+                row_done.append(bool(pinned[i]))
                 continue
             item = next(queue_iter, None)
             if item is None:
@@ -417,10 +459,12 @@ class PlanScheduler:
         return {
             "rows": rows,
             "row_done": row_done,
+            "row_fixed": row_fixed,
+            "row_blocked": row_blocked,
             "notes": notes,
             "promoted": list(used_extras),
             "extra_left": extras[len(used_extras):],
-            "queue_used": len(own),
+            "queue_used": min(quota, max(0, len(q) - start)),
             "extras": extras,
         }
 
@@ -623,6 +667,9 @@ class PlanScheduler:
             self.p.slot_notes[slot_idx].append(plan)
         # 已经「仅完成」过的：归档和备注都做过了，这里只把它解开，让它滚起来
         self.p.inplace_done[slot_idx] = None
+        # 固定 / 拦截过的格子，完成后也解开（不然它一直占着不动）
+        self.p.slot_fixed[slot_idx] = None
+        self.p.slot_blocked[slot_idx] = None
         self.p.normalize()
         return True
 
@@ -638,6 +685,46 @@ class PlanScheduler:
         if slot_idx < 0 or slot_idx >= len(rows):
             return False
         return rows[slot_idx][1] is not None
+
+    def toggle_fixed(self, slot_idx):
+        """固定计划：这一格的原定计划不参与上滚（它后面的照常参与）"""
+        st = self.today_state()
+        rows = st["rows"]
+        if slot_idx < 0 or slot_idx >= len(rows):
+            return False
+        self.p.normalize()
+        if st["row_fixed"][slot_idx]:
+            self.p.slot_fixed[slot_idx] = None
+        else:
+            plan = rows[slot_idx][1]
+            if not plan:
+                return False
+            self.p.slot_fixed[slot_idx] = plan
+        self.p.normalize()
+        return True
+
+    def toggle_blocked(self, slot_idx):
+        """拦截滚动：这一格以及往后的所有格子都不参与上滚"""
+        st = self.today_state()
+        rows = st["rows"]
+        if slot_idx < 0 or slot_idx >= len(rows):
+            return False
+        self.p.normalize()
+        if st["row_blocked"][slot_idx]:
+            for j in range(slot_idx, len(rows)):
+                self.p.slot_blocked[j] = None
+        else:
+            for j in range(slot_idx, len(rows)):
+                self.p.slot_blocked[j] = rows[j][1] or None
+        self.p.normalize()
+        return True
+
+    def can_fix_slot(self, slot_idx):
+        st = self.today_state()
+        rows = st["rows"]
+        if slot_idx < 0 or slot_idx >= len(rows):
+            return False
+        return bool(rows[slot_idx][1])
 
     def _drop_from_extras(self, plan):
         """完成的这条本来就在额外轮里的话，额外轮里那条也算做完了"""
@@ -1457,12 +1544,15 @@ class PlanExecutor(QWidget):
                 w.deleteLater()
 
     def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False,
-                       slot_idx=None, show_complete=False, done=False, note=None):
+                       slot_idx=None, show_complete=False, done=False, note=None,
+                       fixed=False, blocked=False):
         """添加一行。is_extra=True 时是「额外安排」，左边框绿色 + 浅绿背景。
 
-        v0.10：
-        - 今天的每一格有两个按钮：「仅完成」（标记完成、不滚动）/「✓ 完成并滚动」（归档并上滚）
+        v0.11：
+        - 今天的每一格四个按钮：「固定计划」「拦截滚动」（小按钮，可切）
+          + 「仅完成」（标记完成、不滚动）+「✓ 完成并滚动」（归档并上滚）
         - done=True 的格子（按过「仅完成」）：计划加删除线 + ✓，按钮灰掉
+        - fixed / blocked：格子左上角加 📌 / ⛔ 标记
         - note：这一格的归档备注（已完成过的内容），显示成行尾小灰字
         - 额外轮的行不带时段名 —— 时段只是当天承装计划的栏位
         """
@@ -1474,7 +1564,8 @@ class PlanExecutor(QWidget):
             slot_label = QLabel("⤴")
             slot_label.setMinimumWidth(30)
         else:
-            slot_label = QLabel(f"  {slot_name}:")
+            mark = "⛔" if blocked else ("📌" if fixed else "")
+            slot_label = QLabel(f"  {mark}{slot_name}:")
             slot_label.setMinimumWidth(80)
         slot_label.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         row.addWidget(slot_label)
@@ -1499,6 +1590,27 @@ class PlanExecutor(QWidget):
             row.addWidget(note_label)
 
         row.addStretch(1)
+
+        if show_complete and slot_idx is not None:
+            # 固定计划 / 拦截滚动（小按钮，可切换）
+            for text, checked, handler in (
+                ("固定计划", bool(fixed), self.on_toggle_fixed),
+                ("拦截滚动", bool(blocked), self.on_toggle_blocked),
+            ):
+                toggle_btn = QPushButton(text)
+                toggle_btn.setFont(QFont("Microsoft YaHei", 9))
+                toggle_btn.setCheckable(True)
+                toggle_btn.setChecked(checked)
+                toggle_btn.setStyleSheet(
+                    "QPushButton { border: 1px solid #888; border-radius: 3px; "
+                    "padding: 3px 8px; }"
+                    "QPushButton:checked { background-color: #2196F3; color: white; "
+                    "border: 1px solid #1976D2; }"
+                )
+                toggle_btn.setCursor(Qt.PointingHandCursor)
+                toggle_btn.clicked.connect(
+                    lambda checked=False, idx=slot_idx, h=handler: h(idx))
+                row.addWidget(toggle_btn)
 
         if show_complete and plan and slot_idx is not None:
             # 仅完成：标记完成，不滚动
@@ -1572,7 +1684,9 @@ class PlanExecutor(QWidget):
                 self._add_slot_row(self.day_layout, sname, plan, is_extra=False,
                                    slot_idx=sidx, show_complete=True,
                                    done=st["row_done"][sidx],
-                                   note=st["notes"][sidx])
+                                   note=st["notes"][sidx],
+                                   fixed=st["row_fixed"][sidx],
+                                   blocked=st["row_blocked"][sidx])
 
         # 额外安排（没滚进今天的那些）
         extra = st["extra_left"]
@@ -1657,6 +1771,18 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.refresh()
 
+    def on_toggle_fixed(self, slot_idx):
+        """固定计划：这一格的原定计划不参与上滚"""
+        if self.scheduler.toggle_fixed(slot_idx):
+            self.data.save()
+            self.refresh()
+
+    def on_toggle_blocked(self, slot_idx):
+        """拦截滚动：这一格及往后的都不参与上滚"""
+        if self.scheduler.toggle_blocked(slot_idx):
+            self.data.save()
+            self.refresh()
+
     def on_complete_only(self, slot_idx):
         """仅完成：标记这一格完成，后面的计划不滚动"""
         if self.scheduler.complete_only_slot(slot_idx):
@@ -1699,6 +1825,8 @@ class PlanExecutor(QWidget):
         p.borrowed_slots = []                                # 切天时清空额外安排
         p.inplace_done = []                                  # 新的一天：每格状态归零
         p.slot_notes = []                                    # 新的一天：归档备注重新开始记
+        p.slot_fixed = []                                    # 新的一天：固定 / 拦截也归零
+        p.slot_blocked = []
         p.normalize()
         self.data.save()
         self.refresh()

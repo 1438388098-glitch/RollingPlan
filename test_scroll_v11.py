@@ -476,6 +476,163 @@ def test_executor_extra_row_has_no_slot_name():
     assert_true(not any("早" in t for t in extra_texts), "额外轮不带时段名")
 
 
+def test_fixed_slot_does_not_move():
+    """固定计划：这一格的原定计划不参与上滚，后面的照常"""
+    print("\n=== test_fixed_slot_does_not_move ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    assert_true(s.toggle_fixed(1), "「中」固定成功")
+    assert_eq(s.today_state()["row_fixed"], [False, True, False], "只有中标记为固定")
+    assert_eq(plans_of(s, 0), ["任务1", "任务2", "任务3"], "标记时显示不变")
+    s.complete_today_slot(0)
+    st = s.today_state()
+    assert_eq(st["rows"], [("早", "任务3"), ("中", "任务2"), ("晚", None)],
+              "中的任务2 没动；晚的任务3 往前挤进了早")
+    assert_eq(plans_of(s, 0).count("任务2"), 1, "任务2 只出现一次（不重复）")
+
+
+def test_fixed_toggle_off():
+    print("\n=== test_fixed_toggle_off ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.toggle_fixed(1)
+    s.toggle_fixed(1)
+    assert_eq(s.today_state()["row_fixed"], [False, False, False], "再按一次取消")
+    s.complete_today_slot(0)
+    assert_eq(plans_of(s, 0), ["任务2", "任务3", None], "取消后恢复正常滚动")
+
+
+def test_blocked_slot_and_after_do_not_move():
+    """拦截滚动：这一格及往后的都不参与上滚"""
+    print("\n=== test_blocked_slot_and_after_do_not_move ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    assert_true(s.toggle_blocked(1), "从「中」开始拦截")
+    assert_eq(s.today_state()["row_blocked"], [False, True, True], "中、晚都被拦截")
+    s.complete_today_slot(0)
+    st = s.today_state()
+    assert_eq(st["rows"], [("早", None), ("中", "任务2"), ("晚", "任务3")],
+              "中和晚都锁住；早腾出来的位置没人补（额外轮为空）")
+
+
+def test_blocked_last_slot_only():
+    print("\n=== test_blocked_last_slot_only ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.toggle_blocked(2)          # 只拦最后一格
+    s.complete_today_slot(0)
+    st = s.today_state()
+    assert_eq(st["rows"], [("早", "任务2"), ("中", None), ("晚", "任务3")],
+              "晚的任务3 不动；中的任务2 挤到早（中空出来）")
+
+
+def test_blocked_freed_slot_from_extra():
+    print("\n=== test_blocked_freed_slot_from_extra ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.borrow_next()              # 额外轮 = 任务4
+    s.toggle_blocked(1)
+    s.complete_today_slot(0)
+    st = s.today_state()
+    assert_eq(st["rows"], [("早", "任务4"), ("中", "任务2"), ("晚", "任务3")],
+              "腾出来的位置由额外轮的任务4 补上")
+    assert_eq(st["extra_left"], [], "额外轮区不再重复显示")
+
+
+def test_blocked_toggle_off():
+    print("\n=== test_blocked_toggle_off ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.toggle_blocked(1)
+    s.toggle_blocked(1)
+    assert_eq(s.today_state()["row_blocked"], [False, False, False], "再按一次全部取消")
+    s.complete_today_slot(0)
+    assert_eq(plans_of(s, 0), ["任务2", "任务3", None], "恢复正常滚动")
+
+
+def test_complete_clears_fixed_and_blocked_on_that_row():
+    print("\n=== test_complete_clears_fixed_and_blocked_on_that_row ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.toggle_fixed(0)
+    s.complete_today_slot(0)     # 完成这一格（它本来固定着）
+    st = s.today_state()
+    assert_eq(st["row_fixed"], [False, False, False], "完成后这一格的固定解开了")
+    assert_eq(plans_of(s, 0), ["任务2", "任务3", None], "正常上滚")
+
+
+def test_fixed_blocked_persist_and_reset():
+    print("\n=== test_fixed_blocked_persist_and_reset ===")
+    d = make_data()
+    p = d.parents[0]
+    s = PlanScheduler(p)
+    s.toggle_fixed(1)
+    s.toggle_blocked(2)
+    data = p.to_dict()
+    for key in ("slot_fixed", "slot_blocked"):
+        assert_true(key in data, f"to_dict 含 {key}")
+    p2 = ParentPlan()
+    p2.from_dict(data)
+    assert_eq(p2.slot_fixed, [None, "任务2", None], "slot_fixed round-trip")
+    assert_eq(p2.slot_blocked, [None, None, "任务3"], "slot_blocked round-trip")
+    p.reset_progress()
+    assert_eq(p.slot_fixed, [], "重置清空 slot_fixed")
+    assert_eq(p.slot_blocked, [], "重置清空 slot_blocked")
+
+
+def test_next_day_clears_fixed_blocked():
+    print("\n=== test_next_day_clears_fixed_blocked ===")
+    d = make_data()
+    p = d.parents[0]
+    s = PlanScheduler(p)
+    s.toggle_fixed(1)
+    p.consumed += s.today_state()["queue_used"]
+    p.archived_base = len(p.archived)
+    p.borrowed_slots = []
+    p.inplace_done = []
+    p.slot_notes = []
+    p.slot_fixed = []
+    p.slot_blocked = []
+    p.current_day = 1
+    p.normalize()
+    st = s.today_state()
+    assert_eq(st["row_fixed"], [False, False, False], "新的一天固定归零")
+    assert_eq(st["row_blocked"], [False, False, False], "新的一天拦截归零")
+    assert_eq(plans_of(s, 1), ["任务4", "任务5", "任务6"], "第2天正常显示")
+
+
+def test_executor_renders_toggle_buttons():
+    print("\n=== test_executor_renders_toggle_buttons ===")
+    d = make_data()
+    ex = PlanExecutor(d, lambda: None)
+    ex.show()
+    app.processEvents()
+    assert_eq(len(find_buttons(ex, "固定计划")), 3, "3 格各有「固定计划」")
+    assert_eq(len(find_buttons(ex, "拦截滚动")), 3, "3 格各有「拦截滚动」")
+    for b in find_buttons(ex, "固定计划") + find_buttons(ex, "拦截滚动"):
+        assert_eq(b.isChecked(), False, "初始都未按下")
+
+
+def test_executor_toggle_fixed_and_blocked():
+    print("\n=== test_executor_toggle_fixed_and_blocked ===")
+    d = make_data()
+    ex = PlanExecutor(d, lambda: None)
+    ex.show()
+    app.processEvents()
+    find_buttons(ex, "固定计划")[1].click()      # 中 → 固定
+    app.processEvents()
+    assert_true(find_buttons(ex, "固定计划")[1].isChecked(), "第二格「固定计划」按下去了")
+    assert_true(any("📌" in t for t in day_labels(ex)), "行首出现 📌 标记")
+    find_buttons(ex, "拦截滚动")[1].click()      # 中 → 拦截
+    app.processEvents()
+    assert_true(find_buttons(ex, "拦截滚动")[1].isChecked(), "「拦截滚动」按下去了")
+    assert_true(any("⛔" in t for t in day_labels(ex)), "行首出现 ⛔ 标记")
+    ex.scheduler.complete_today_slot(0)
+    ex.refresh()
+    app.processEvents()
+    assert_eq(ex.scheduler.today_state()["rows"][1], ("中", "任务2"), "中被拦截，没动")
+
+
 def main():
     test_complete_only_does_not_scroll()
     test_complete_only_twice_is_rejected()
@@ -502,6 +659,17 @@ def main():
     test_executor_scroll_rolls_rows()
     test_executor_return_undoes()
     test_executor_extra_row_has_no_slot_name()
+    test_fixed_slot_does_not_move()
+    test_fixed_toggle_off()
+    test_blocked_slot_and_after_do_not_move()
+    test_blocked_last_slot_only()
+    test_blocked_freed_slot_from_extra()
+    test_blocked_toggle_off()
+    test_complete_clears_fixed_and_blocked_on_that_row()
+    test_fixed_blocked_persist_and_reset()
+    test_next_day_clears_fixed_blocked()
+    test_executor_renders_toggle_buttons()
+    test_executor_toggle_fixed_and_blocked()
 
     print()
     print(f"PASS={PASS_COUNT}  FAIL={FAIL_COUNT}")
