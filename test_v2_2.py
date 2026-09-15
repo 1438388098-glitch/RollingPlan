@@ -195,6 +195,49 @@ def test_borrow_snapshot_independence():
     assert_eq(p.borrowed_slots[0][1], "原始任务2", "编辑借出位置原 plans 也不影响快照")
 
 
+def test_borrow_next_v03():
+    """v0.3 新增：borrow_next 加一个（不分时段名）"""
+    print("\\n=== test_borrow_next_v03: 加一个（v0.3 新增）===")
+    # 9 plans, 早/中/晚 ×1 = 3 slots/day, 3 days
+    # day0 (current): 早=任务1, 中=任务2, 晚=任务3
+    # day1 (future): 早=任务4, 中=任务5, 晚=任务6
+    # day2 (future): 早=任务7, 中=任务8, 晚=任务9
+    p = ParentPlan("next")
+    p.time_slots = [{"name":"早","count":1}, {"name":"中","count":1}, {"name":"晚","count":1}]
+    p.plans = [f"任务{i+1}" for i in range(9)]
+    p.current_day = 0
+    s = PlanScheduler(p)
+
+    # 加 1 个：future 最早位置 = day1 早 = 任务4
+    assert_eq(s.borrow_next(), True, "加 1 成功")
+    assert_eq(p.borrowed_slots[0], ["早", "任务4", 1, 0], "借到 day1 早-0 = 任务4")
+
+    # 加 2 个：下一个未借 = day1 中 = 任务5
+    assert_eq(s.borrow_next(), True, "加 2 成功")
+    assert_eq(p.borrowed_slots[1], ["中", "任务5", 1, 1], "借到 day1 中 = 任务5")
+
+    # 加 3 个：下一个未借 = day1 晚 = 任务6
+    assert_eq(s.borrow_next(), True, "加 3 成功")
+    assert_eq(p.borrowed_slots[2], ["晚", "任务6", 1, 2], "借到 day1 晚 = 任务6")
+
+    # 加 4 个：下一个未借 = day2 早 = 任务7（不卡在 day1 的"晚"上）
+    assert_eq(s.borrow_next(), True, "加 4 成功（跨天）")
+    assert_eq(p.borrowed_slots[3], ["早", "任务7", 2, 0], "借到 day2 早-0 = 任务7")
+
+    # can_borrow_next 应仍然 True（还剩 8/9 = 2 个）
+    assert_eq(s.can_borrow_next(), True, "还能继续加")
+
+    # 借光
+    while s.borrow_next():
+        pass
+    assert_eq(s.can_borrow_next(), False, "借光后不能再加")
+    assert_eq(len(p.borrowed_slots), 6, "总共借出 6 条（2 天 × 3 槽）")
+
+    # 退回后能再借
+    s.return_last_borrowed()
+    assert_eq(s.can_borrow_next(), True, "退回后又能加")
+
+
 def main():
     test_basic_borrow()
     test_chain_borrow()
@@ -204,7 +247,8 @@ def main():
     test_available_names_dedup()
     test_has_borrowed_blocks_slot_edit()
     test_borrow_snapshot_independence()
-    print("\n=== ALL TESTS PASSED ===")
+    test_borrow_next_v03()
+    print("\\n=== ALL TESTS PASSED ===")
 
 
 if __name__ == "__main__":
