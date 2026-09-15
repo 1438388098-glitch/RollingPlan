@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox, QTabWidget,
     QGroupBox, QInputDialog, QFileDialog, QComboBox, QToolButton,
-    QSizePolicy,
+    QSizePolicy, QDialog, QScrollArea,
 )
 from PyQt5.QtCore import Qt, QDate, QSettings
 from PyQt5.QtGui import QFont
@@ -407,7 +407,8 @@ class PlanScheduler:
         spd = self.slots_per_day()
         if spd == 0:
             return {"rows": [], "row_done": [], "row_fixed": [], "row_blocked": [],
-                    "notes": [], "promoted": [], "extra_left": [], "queue_used": 0,
+                    "notes": [], "promoted": [], "extra_left": [],
+                    "extras_frozen": False, "queue_used": 0,
                     "extras": []}
 
         slots = self._expand_slots()
@@ -438,7 +439,10 @@ class PlanScheduler:
         movable = spd - held_count
         own = pool[:movable]
         extras = self.extra_plans()
-        used_extras = extras[:max(0, movable - len(own))]
+        # v0.12：「额外轮」是当天最后的时间栏 —— 只要有格子按了「拦截滚动」，
+        # 额外轮也在拦截范围里，腾出来的位置不再由它候补上来
+        extras_frozen = any(blocked)
+        used_extras = [] if extras_frozen else extras[:max(0, movable - len(own))]
 
         rows, row_done, row_fixed, row_blocked = [], [], [], []
         queue_iter = iter(own)
@@ -464,6 +468,7 @@ class PlanScheduler:
             "notes": notes,
             "promoted": list(used_extras),
             "extra_left": extras[len(used_extras):],
+            "extras_frozen": extras_frozen,
             "queue_used": min(quota, max(0, len(q) - start)),
             "extras": extras,
         }
@@ -614,6 +619,24 @@ class PlanScheduler:
                 self.p.borrowed_slots.append([sname, plan, day, sidx])
                 return True
         return False
+
+    def unborrow_plan(self, plan_text):
+        """删除该安排：把某一条额外安排撤掉（v0.12，UI 列表里逐条删）
+
+        - 还在候补的：直接从额外轮拿走
+        - 已经滚进今天某一格的：拿走之后那一格会重新按顺序补（补不到就空着）
+        - 被拿走的那条回到「还没安排」的队里，以后还能再拉
+        """
+        self.p.normalize()
+        for i, item in enumerate(self.p.borrowed_slots):
+            if item[1] == plan_text:
+                self.p.borrowed_slots.pop(i)
+                self.p.normalize()
+                return True
+        return False
+
+    def can_unborrow(self):
+        return len(self.p.borrowed_slots) > 0
 
     def return_last_borrowed(self):
         """退回：把额外轮最后 1 个推回去"""
@@ -1451,6 +1474,20 @@ class PlanExecutor(QWidget):
         day_container.setLayout(self.day_layout)
         layout.addWidget(day_container, stretch=1)
 
+        # ============ 额外安排：细长条按钮（在两大按钮上方）============
+        # 长度与「加一个 + 今天完成」的总长相当，但矮一些 —— 点开是当天额外安排列表
+        self.extra_btn = QPushButton("📋 额外安排（0）")
+        self.extra_btn.setFont(QFont("Microsoft YaHei", 11))
+        self.extra_btn.setMinimumHeight(30)
+        self.extra_btn.setMaximumHeight(34)
+        self.extra_btn.setStyleSheet(
+            "QPushButton { border: 1px solid #999; border-radius: 5px; padding: 4px; }"
+            "QPushButton:hover { background-color: rgba(33,150,243,0.15); }"
+        )
+        self.extra_btn.setCursor(Qt.PointingHandCursor)
+        self.extra_btn.clicked.connect(self.on_show_extras)
+        layout.addWidget(self.extra_btn)
+
         # ============ 主操作大按钮（两个并列、加大高度）============
         action_row = QHBoxLayout()
         action_row.setSpacing(10)
@@ -1499,11 +1536,8 @@ class PlanExecutor(QWidget):
         sub_row.addStretch()
         adv_layout.addLayout(sub_row)
 
-        # 额外安排（折叠在 advanced 里）
-        self.extra_group = QGroupBox("额外安排")
-        self.extra_layout = QVBoxLayout()
-        self.extra_group.setLayout(self.extra_layout)
-        adv_layout.addWidget(self.extra_group)
+        # 额外安排：v0.12 起列表移到「额外安排」按钮打开的对话框里
+        # （按钮在主操作大按钮上方，见 __init__）
 
         # 计划日历（折叠在 advanced 里）
         cal_group = QGroupBox("计划日历")
@@ -1651,7 +1685,6 @@ class PlanExecutor(QWidget):
 
     def refresh(self):
         self._clear_layout(self.day_layout)
-        self._clear_layout(self.extra_layout)
 
         p = self.data.current_parent
         self.scheduler = PlanScheduler(p)
@@ -1688,16 +1721,11 @@ class PlanExecutor(QWidget):
                                    fixed=st["row_fixed"][sidx],
                                    blocked=st["row_blocked"][sidx])
 
-        # 额外安排（没滚进今天的那些）
-        extra = st["extra_left"]
-        if not extra:
-            lbl = QLabel("还没有额外安排")
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet("font-style: italic;")
-            self.extra_layout.addWidget(lbl)
-        else:
-            for plan in extra:
-                self._add_slot_row(self.extra_layout, None, plan, is_extra=True)
+        # 额外安排：列表在「额外安排」按钮打开的对话框里（v0.12）
+        count = len(st["extras"])
+        frozen = " · 已拦截" if st["extras_frozen"] else ""
+        self.extra_btn.setText(f"📋 额外安排（{count}）{frozen}")
+        self.extra_btn.setEnabled(True)
 
         # 按钮启用状态 + 文案
         can_undo = self.scheduler.can_undo_complete()
@@ -1742,24 +1770,34 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.refresh()
 
-    def on_add_specific(self):
-        """添加指定：从后面还没安排的里挑一条提前安排（v0.9：按计划挑，不按时段名）"""
+    def ask_add_specific(self):
+        """弹「添加指定」对话框 → 选中就拉进额外轮。返回是否成功（v0.12：抽出给列表复用）"""
         if self.scheduler.all_consumed():
             QMessageBox.information(self, "提示", "🎉 全部计划都已完成！")
-            return
-
+            return False
         available = self.scheduler.available_pick_plans()
         if not available:
             QMessageBox.information(self, "提示", "没有可提前安排的计划了")
-            return
-
+            return False
         plan, ok = QInputDialog.getItem(self, "添加指定", "想提前安排哪一条？", available, 0, False)
-        if ok and plan:
-            if self.scheduler.borrow_plan(plan):
-                self.data.save()
-                self.refresh()
-            else:
-                QMessageBox.warning(self, "提示", f"无法添加「{plan}」")
+        if not ok or not plan:
+            return False
+        if self.scheduler.borrow_plan(plan):
+            self.data.save()
+            self.refresh()
+            return True
+        QMessageBox.warning(self, "提示", f"无法添加「{plan}」")
+        return False
+
+    def on_add_specific(self):
+        """添加指定：从后面还没安排的里挑一条提前安排（v0.9：按计划挑，不按时段名）"""
+        self.ask_add_specific()
+
+    def on_show_extras(self):
+        """额外安排：打开当天额外安排列表（v0.12）"""
+        dlg = ExtraArrangementsDialog(self)
+        dlg.exec_()
+        self.refresh()
 
     def on_return(self):
         """退回：优先撤销今天最近一次「完成」，没有了再退额外轮最后一个"""
@@ -1845,6 +1883,143 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.scheduler = PlanScheduler(self.data.current_parent)
             self.refresh()
+
+
+# ============== 额外安排 列表（v0.12） ==============
+
+class ExtraArrangementsDialog(QDialog):
+    """当天额外安排列表 —— 点「📋 额外安排」细长条按钮打开
+
+    - 每条一个「🗑 删除该安排」
+    - 底部：「➕ 添加指定计划」（从后面还没安排的里挑一条拉进来）
+            「⤵ 直接拉取下一个」（不挑，按顺序直接拉下一条）
+    - 已经滚进今天某一格的，标出滚到了第几格
+    """
+
+    def __init__(self, executor, parent=None):
+        super().__init__(parent or executor)
+        self.ex = executor
+        self.setWindowTitle("今天的额外安排")
+        self.resize(520, 400)
+
+        outer = QVBoxLayout(self)
+        outer.setSpacing(8)
+
+        self.hint = QLabel()
+        self.hint.setWordWrap(True)
+        self.hint.setStyleSheet("color: #666;")
+        outer.addWidget(self.hint)
+
+        self.list_layout = QVBoxLayout()
+        self.list_layout.setSpacing(6)
+        box = QWidget()
+        box.setLayout(self.list_layout)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setWidget(box)
+        outer.addWidget(self.scroll, stretch=1)
+
+        btns = QHBoxLayout()
+        self.add_specific_btn = QPushButton("➕ 添加指定计划")
+        self.add_specific_btn.clicked.connect(self.on_add_specific)
+        btns.addWidget(self.add_specific_btn)
+        self.pull_next_btn = QPushButton("⤵ 直接拉取下一个")
+        self.pull_next_btn.clicked.connect(self.on_pull_next)
+        btns.addWidget(self.pull_next_btn)
+        btns.addStretch(1)
+        close_btn = QPushButton("关闭")
+        close_btn.clicked.connect(self.accept)
+        btns.addWidget(close_btn)
+        outer.addLayout(btns)
+
+        self.rebuild()
+
+    # ---------- 列表渲染 ----------
+
+    def borrowed_plans(self):
+        self.ex.data.current_parent.normalize()
+        return [item[1] for item in self.ex.data.current_parent.borrowed_slots]
+
+    def _clear(self):
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+
+    def promoted_positions(self, st=None):
+        """额外安排里哪几条已经滚进今天了 → {计划内容: 第几格}"""
+        st = st or self.ex.scheduler.today_state()
+        left = list(st["promoted"])
+        out = {}
+        for idx, (_, plan) in enumerate(st["rows"]):
+            if plan and plan in left:
+                out.setdefault(plan, idx + 1)
+                left.remove(plan)
+        return out
+
+    def rebuild(self):
+        self._clear()
+        sched = self.ex.scheduler
+        st = sched.today_state()
+        borrowed = self.borrowed_plans()
+        promoted = self.promoted_positions(st)
+
+        if st["extras_frozen"]:
+            self.hint.setText("今天有格子按了「拦截滚动」—— 额外轮是当天最后的时间栏，"
+                              "也在拦截范围里，腾出来的位置不由它候补。")
+        else:
+            self.hint.setText("额外轮 = 当天额外的时间栏。额外加进来的计划在这里按顺序候补，"
+                              "前面格子完成并滚动时才会顶上来。")
+
+        if not borrowed:
+            lbl = QLabel("还没有额外安排")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet("font-style: italic;")
+            self.list_layout.addWidget(lbl)
+        else:
+            for i, plan in enumerate(borrowed, 1):
+                row = QHBoxLayout()
+                name = QLabel(f"{i}. {plan}")
+                name.setFont(QFont("Microsoft YaHei", 12))
+                row.addWidget(name)
+                if plan in promoted:
+                    tag = QLabel(f"（已滚入今天的第 {promoted[plan]} 格）")
+                else:
+                    tag = QLabel("（候补中）")
+                tag.setStyleSheet("color: #888;")
+                row.addWidget(tag)
+                row.addStretch(1)
+                del_btn = QPushButton("🗑 删除该安排")
+                del_btn.clicked.connect(
+                    lambda checked=False, p=plan: self.on_delete(p))
+                row.addWidget(del_btn)
+                holder = QWidget()
+                holder.setLayout(row)
+                self.list_layout.addWidget(holder)
+
+        self.list_layout.addStretch(1)
+        self.pull_next_btn.setEnabled(sched.can_borrow_next())
+        self.add_specific_btn.setEnabled(bool(sched.available_pick_plans()))
+
+    # ---------- 动作 ----------
+
+    def on_delete(self, plan):
+        if self.ex.scheduler.unborrow_plan(plan):
+            self.ex.data.save()
+            self.ex.refresh()
+            self.rebuild()
+
+    def on_pull_next(self):
+        if self.ex.scheduler.borrow_next():
+            self.ex.data.save()
+            self.ex.refresh()
+            self.rebuild()
+
+    def on_add_specific(self):
+        if self.ex.ask_add_specific():
+            self.rebuild()
 
 
 # ============== 主窗口 ==============

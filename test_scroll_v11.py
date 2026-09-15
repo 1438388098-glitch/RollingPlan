@@ -380,7 +380,7 @@ def test_borrow_plan_rejects_unknown_or_today():
 def find_buttons(ex, text):
     """只找当前显示的行里的按钮（刷新时旧控件是 deleteLater，别抓到旧的）"""
     out = []
-    for layout in (ex.day_layout, ex.extra_layout):
+    for layout in (ex.day_layout,):
         for i in range(layout.count()):
             item = layout.itemAt(i)
             if item and item.widget():
@@ -395,6 +395,30 @@ def day_labels(ex):
         item = ex.day_layout.itemAt(i)
         if item and item.widget():
             out += [c.text() for c in item.widget().findChildren(rollingplan.QLabel)]
+    return out
+
+
+def dialog_labels(dlg):
+    """额外安排列表对话框里的所有文字"""
+    out = [dlg.hint.text()]
+    for i in range(dlg.list_layout.count()):
+        item = dlg.list_layout.itemAt(i)
+        if item and item.widget():
+            w = item.widget()
+            if isinstance(w, rollingplan.QLabel):
+                out.append(w.text())          # 占位提示牌本身就是 QLabel
+            out += [c.text() for c in w.findChildren(rollingplan.QLabel)]
+    return out
+
+
+def dialog_delete_buttons(dlg):
+    """列表里所有的「🗑 删除该安排」按钮"""
+    out = []
+    for i in range(dlg.list_layout.count()):
+        item = dlg.list_layout.itemAt(i)
+        if item and item.widget():
+            out += [b for b in item.widget().findChildren(rollingplan.QPushButton)
+                    if b.text() == "🗑 删除该安排"]
     return out
 
 
@@ -459,6 +483,7 @@ def test_executor_return_undoes():
 
 
 def test_executor_extra_row_has_no_slot_name():
+    """额外安排列表里只有计划内容，不带时段名（v0.12：列表在对话框里）"""
     print("\n=== test_executor_extra_row_has_no_slot_name ===")
     d = make_data()
     ex = PlanExecutor(d, lambda: None)
@@ -467,13 +492,12 @@ def test_executor_extra_row_has_no_slot_name():
     ex.scheduler.borrow_next()
     ex.refresh()
     app.processEvents()
-    extra_texts = []
-    for i in range(ex.extra_layout.count()):
-        item = ex.extra_layout.itemAt(i)
-        if item and item.widget():
-            extra_texts += [c.text() for c in item.widget().findChildren(rollingplan.QLabel)]
-    assert_true(any("任务4" in t for t in extra_texts), "额外轮显示 任务4")
-    assert_true(not any("早" in t for t in extra_texts), "额外轮不带时段名")
+    dlg = rollingplan.ExtraArrangementsDialog(ex)
+    texts = dialog_labels(dlg)
+    assert_true(any("任务4" in t for t in texts), "列表里显示 任务4")
+    assert_true(not any(t.strip().startswith("早") for t in texts), "额外安排不带时段名")
+    assert_true(any("候补中" in t for t in texts), "标着「候补中」")
+    assert_eq(ex.extra_btn.text(), "📋 额外安排（1）", "细长条按钮显示条数")
 
 
 def test_fixed_slot_does_not_move():
@@ -527,6 +551,7 @@ def test_blocked_last_slot_only():
 
 
 def test_blocked_freed_slot_from_extra():
+    """拦截时：额外轮是当天最后的时间栏，也在拦截范围里 —— 腾出来的位置没人补（v0.12）"""
     print("\n=== test_blocked_freed_slot_from_extra ===")
     d = make_data()
     s = PlanScheduler(d.parents[0])
@@ -534,9 +559,132 @@ def test_blocked_freed_slot_from_extra():
     s.toggle_blocked(1)
     s.complete_today_slot(0)
     st = s.today_state()
-    assert_eq(st["rows"], [("早", "任务4"), ("中", "任务2"), ("晚", "任务3")],
-              "腾出来的位置由额外轮的任务4 补上")
-    assert_eq(st["extra_left"], [], "额外轮区不再重复显示")
+    assert_eq(st["extras_frozen"], True, "有格子拦截 → 额外轮也被拦")
+    assert_eq(st["rows"], [("早", None), ("中", "任务2"), ("晚", "任务3")],
+              "腾出来的位置是空的（额外轮不候补上来）")
+    assert_eq(st["extra_left"], ["任务4"], "任务4 还留在额外轮里")
+    assert_eq(st["promoted"], [], "没有任何额外安排滚进今天")
+
+
+def test_blocked_allows_extra_when_no_block():
+    """没拦截时，额外轮照旧候补（对照）"""
+    print("\n=== test_blocked_allows_extra_when_no_block ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.borrow_next()              # 额外轮 = 任务4
+    s.complete_today_slot(0)     # 没有拦截
+    st = s.today_state()
+    assert_eq(st["extras_frozen"], False, "没拦截 → 额外轮不冻结")
+    assert_eq(st["rows"], [("早", "任务2"), ("中", "任务3"), ("晚", "任务4")],
+              "正常上滚，任务4 顶进最后一格")
+    assert_eq(st["promoted"], ["任务4"], "任务4 已滚入今天")
+
+
+def test_fixed_allows_extra():
+    """固定（不是拦截）：额外轮不受影响，照旧候补"""
+    print("\n=== test_fixed_allows_extra ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.borrow_next()
+    s.toggle_fixed(1)
+    s.complete_today_slot(0)
+    st = s.today_state()
+    assert_eq(st["extras_frozen"], False, "固定不冻结额外轮")
+    assert_eq(st["rows"], [("早", "任务3"), ("中", "任务2"), ("晚", "任务4")],
+              "中的2 固定住；任务4 补进晚")
+
+
+def test_unborrow_waiting_plan():
+    """删除该安排：还没滚进来的，直接拿走"""
+    print("\n=== test_unborrow_waiting_plan ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.borrow_next()                       # 任务4 进额外轮（今天没空格，候补中）
+    assert_eq(s.today_state()["extra_left"], ["任务4"], "任务4 在候补")
+    assert_true(s.unborrow_plan("任务4"), "删除成功")
+    assert_eq(s.today_state()["extras"], [], "额外轮空了")
+    assert_true("任务4" in s.available_pick_plans(), "任务4 回到「还没安排」的队里")
+    assert_eq(s.unborrow_plan("任务4"), False, "再删删不到")
+
+
+def test_unborrow_promoted_plan():
+    """删除已经滚进今天的安排：那一格由后面的候补顶上"""
+    print("\n=== test_unborrow_promoted_plan ===")
+    d = make_data()
+    s = PlanScheduler(d.parents[0])
+    s.borrow_next()                       # 任务4
+    s.borrow_plan("任务7")                # 任务7
+    s.complete_today_slot(0)              # 早1 归档 → 早=任务2 中=任务3 晚=任务4
+    st = s.today_state()
+    assert_eq(st["rows"], [("早", "任务2"), ("中", "任务3"), ("晚", "任务4")], "任务4 滚进晚")
+    assert_eq(st["promoted"], ["任务4"], "任务4 已滚入")
+    assert_true(s.unborrow_plan("任务4"), "把滚进来的任务4 删掉")
+    st = s.today_state()
+    assert_eq(st["rows"], [("早", "任务2"), ("中", "任务3"), ("晚", "任务7")],
+              "晚那一格改成候补里的任务7")
+    assert_eq(st["extras"], ["任务7"], "额外轮只剩任务7")
+
+
+def test_executor_extra_button_and_dialog():
+    print("\n=== test_executor_extra_button_and_dialog ===")
+    d = make_data()
+    ex = PlanExecutor(d, lambda: None)
+    ex.show()
+    app.processEvents()
+    assert_eq(ex.extra_btn.text(), "📋 额外安排（0）", "初始 0 条")
+    ex.scheduler.borrow_next()
+    ex.refresh()
+    app.processEvents()
+    assert_eq(ex.extra_btn.text(), "📋 额外安排（1）", "加一个后显示 1 条")
+    # 版式：长度 = 两个大按钮合起来的跨度，但更矮
+    span = (ex.done_btn.x() + ex.done_btn.width()) - ex.add_next_btn.x()
+    assert_eq(ex.extra_btn.width(), span, "细长条的长度 = 加一个+今天完成的跨度")
+    assert_true(ex.extra_btn.height() < ex.add_next_btn.height(), "细长条更矮")
+
+    dlg = rollingplan.ExtraArrangementsDialog(ex)
+    assert_eq(len(dialog_delete_buttons(dlg)), 1, "列表里 1 个「删除该安排」")
+    assert_eq(dlg.add_specific_btn.text(), "➕ 添加指定计划", "有「添加指定计划」")
+    assert_eq(dlg.pull_next_btn.text(), "⤵ 直接拉取下一个", "有「直接拉取下一个」")
+
+    dlg.pull_next_btn.click()
+    app.processEvents()
+    assert_eq(ex.extra_btn.text(), "📋 额外安排（2）", "直接拉取后 2 条")
+    dialog_delete_buttons(dlg)[0].click()
+    app.processEvents()
+    assert_eq(ex.extra_btn.text(), "📋 额外安排（1）", "删掉一条后剩 1 条")
+
+
+def test_dialog_marks_promoted_and_frozen():
+    print("\n=== test_dialog_marks_promoted_and_frozen ===")
+    d = make_data()
+    ex = PlanExecutor(d, lambda: None)
+    ex.show()
+    app.processEvents()
+    ex.scheduler.borrow_next()            # 任务4
+    ex.scheduler.complete_today_slot(0)   # 早1 → 任务4 滚进晚
+    ex.refresh()
+    app.processEvents()
+    dlg = rollingplan.ExtraArrangementsDialog(ex)
+    texts = dialog_labels(dlg)
+    assert_true(any("已滚入今天的第 3 格" in t for t in texts), "标出滚进了第 3 格")
+
+    ex.scheduler.toggle_blocked(1)        # 拦截 → 额外轮冻结
+    ex.refresh()
+    app.processEvents()
+    assert_true("已拦截" in ex.extra_btn.text(), "细长条按钮上标出「已拦截」")
+    dlg2 = rollingplan.ExtraArrangementsDialog(ex)
+    assert_true("拦截" in dlg2.hint.text(), "列表里提示被拦截")
+
+
+def test_dialog_no_extra_placeholder():
+    print("\n=== test_dialog_no_extra_placeholder ===")
+    d = make_data()
+    ex = PlanExecutor(d, lambda: None)
+    ex.show()
+    app.processEvents()
+    dlg = rollingplan.ExtraArrangementsDialog(ex)
+    assert_true(any("还没有额外安排" in t for t in dialog_labels(dlg)), "空列表有提示")
+    assert_eq(len(dialog_delete_buttons(dlg)), 0, "空列表没有删除按钮")
 
 
 def test_blocked_toggle_off():
@@ -664,6 +812,13 @@ def main():
     test_blocked_slot_and_after_do_not_move()
     test_blocked_last_slot_only()
     test_blocked_freed_slot_from_extra()
+    test_blocked_allows_extra_when_no_block()
+    test_fixed_allows_extra()
+    test_unborrow_waiting_plan()
+    test_unborrow_promoted_plan()
+    test_executor_extra_button_and_dialog()
+    test_dialog_marks_promoted_and_frozen()
+    test_dialog_no_extra_placeholder()
     test_blocked_toggle_off()
     test_complete_clears_fixed_and_blocked_on_that_row()
     test_fixed_blocked_persist_and_reset()
