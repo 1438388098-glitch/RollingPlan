@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox, QTabWidget,
-    QGroupBox, QInputDialog, QFileDialog, QComboBox,
+    QGroupBox, QInputDialog, QFileDialog, QComboBox, QToolButton,
+    QSizePolicy,
 )
 from PyQt5.QtCore import Qt, QDate, QSettings
 from PyQt5.QtGui import QFont
@@ -461,8 +462,22 @@ class PlanEditor(QWidget):
         io_row.addWidget(export_btn)
         layout.addLayout(io_row)
 
-        # ============ 分类列表 ============
-        parent_group = QGroupBox("计划分类（工作、学习、健身……可多个）")
+        # ============ 分类列表（默认收起）============
+        # QGroupBox 的 checkable + checked=False 在 pyqtdarktheme 下不自动隐藏子 widget，
+        # 改用 QToolButton 手动控制 visibility
+        parent_group = QGroupBox()
+        self._parent_toggle = QToolButton()
+        self._parent_toggle.setText("▸ 计划分类")
+        self._parent_toggle.setCheckable(True)
+        self._parent_toggle.setChecked(False)
+        self._parent_toggle.setStyleSheet("QToolButton { border: none; color: #888; padding: 4px; }")
+        self._parent_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._parent_toggle.clicked.connect(self._toggle_parent_group)
+        self._parent_body = QWidget()
+        pg_outer = QVBoxLayout(self._parent_body)
+        self.parent_name_label = QLabel()
+        self.parent_name_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+        pg_outer.addWidget(self.parent_name_label)
         pg_layout = QHBoxLayout()
 
         self.parent_list = QListWidget()
@@ -484,16 +499,25 @@ class PlanEditor(QWidget):
         pg_btn_col.addStretch()
         pg_layout.addLayout(pg_btn_col)
 
-        parent_group.setLayout(pg_layout)
+        pg_outer.addLayout(pg_layout)
+        self._parent_body.setVisible(False)  # 默认收起
+        # 装进 GroupBox：标题用 QToolButton 替代，内容是 body
+        group_layout = QVBoxLayout(parent_group)
+        group_layout.addWidget(self._parent_toggle)
+        group_layout.addWidget(self._parent_body)
         layout.addWidget(parent_group)
 
-        # ============ 当前分类名 ============
-        self.parent_name_label = QLabel()
-        self.parent_name_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        layout.addWidget(self.parent_name_label)
-
-        # ============ 计划清单 ============
-        plan_group = QGroupBox("计划清单（按顺序执行）")
+        # ============ 计划清单（默认收起）============
+        plan_group = QGroupBox()
+        self._plan_toggle = QToolButton()
+        self._plan_toggle.setText("▸ 计划清单")
+        self._plan_toggle.setCheckable(True)
+        self._plan_toggle.setChecked(False)
+        self._plan_toggle.setStyleSheet("QToolButton { border: none; color: #888; padding: 4px; }")
+        self._plan_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._plan_toggle.clicked.connect(self._toggle_plan_group)
+        self._plan_body = QWidget()
+        plan_outer = QVBoxLayout(self._plan_body)
         plan_layout = QVBoxLayout()
 
         self.plan_list = QListWidget()
@@ -518,11 +542,24 @@ class PlanEditor(QWidget):
             edit_row.addWidget(btn)
 
         plan_layout.addLayout(edit_row)
-        plan_group.setLayout(plan_layout)
+        plan_outer.addLayout(plan_layout)
+        self._plan_body.setVisible(False)
+        plan_group_layout = QVBoxLayout(plan_group)
+        plan_group_layout.addWidget(self._plan_toggle)
+        plan_group_layout.addWidget(self._plan_body)
         layout.addWidget(plan_group)
 
-        # ============ 时段 ============
-        slot_group = QGroupBox("时段（自定义每天分为几段）")
+        # ============ 时段（默认收起）============
+        slot_group = QGroupBox()
+        self._slot_toggle = QToolButton()
+        self._slot_toggle.setText("▸ 时段")
+        self._slot_toggle.setCheckable(True)
+        self._slot_toggle.setChecked(False)
+        self._slot_toggle.setStyleSheet("QToolButton { border: none; color: #888; padding: 4px; }")
+        self._slot_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._slot_toggle.clicked.connect(self._toggle_slot_group)
+        self._slot_body = QWidget()
+        slot_outer = QVBoxLayout(self._slot_body)
         slot_layout = QVBoxLayout()
 
         self.slot_list = QListWidget()
@@ -554,7 +591,11 @@ class PlanEditor(QWidget):
             slot_row.addWidget(btn)
 
         slot_layout.addLayout(slot_row)
-        slot_group.setLayout(slot_layout)
+        slot_outer.addLayout(slot_layout)
+        self._slot_body.setVisible(False)
+        slot_group_layout = QVBoxLayout(slot_group)
+        slot_group_layout.addWidget(self._slot_toggle)
+        slot_group_layout.addWidget(self._slot_body)
         layout.addWidget(slot_group)
 
         # ============ 起始日期 ============
@@ -658,6 +699,21 @@ class PlanEditor(QWidget):
             self.data.current_parent_idx = idx + 1
             self.refresh_all()
             self.data.save()
+
+    def _toggle_parent_group(self):
+        checked = self._parent_toggle.isChecked()
+        self._parent_body.setVisible(checked)
+        self._parent_toggle.setText("▾ 计划分类" if checked else "▸ 计划分类")
+
+    def _toggle_plan_group(self):
+        checked = self._plan_toggle.isChecked()
+        self._plan_body.setVisible(checked)
+        self._plan_toggle.setText("▾ 计划清单" if checked else "▸ 计划清单")
+
+    def _toggle_slot_group(self):
+        checked = self._slot_toggle.isChecked()
+        self._slot_body.setVisible(checked)
+        self._slot_toggle.setText("▾ 时段" if checked else "▸ 时段")
 
     def refresh_all(self):
         # 分类列表
@@ -958,91 +1014,143 @@ class PlanExecutor(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout()
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
 
-        title = QLabel("日常计划管理")
-        title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
-        layout.addWidget(title)
-
-        # 分类切换
-        parent_row = QHBoxLayout()
-        parent_row.addWidget(QLabel("当前分类:"))
+        # ============ 顶部：分类 + 主题 + 返回（次要行）============
+        top_row = QHBoxLayout()
         self.parent_combo_label = QLabel()
-        self.parent_combo_label.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
-        parent_row.addWidget(self.parent_combo_label)
-
-        self.parent_switch_btn = QPushButton("切换分类 →")
+        self.parent_combo_label.setFont(QFont("Microsoft YaHei", 11))
+        top_row.addWidget(self.parent_combo_label)
+        self.parent_switch_btn = QPushButton("切换")
         self.parent_switch_btn.clicked.connect(self.on_switch_parent)
-        parent_row.addWidget(self.parent_switch_btn)
-        parent_row.addStretch()
+        top_row.addWidget(self.parent_switch_btn)
+        top_row.addStretch()
+
+        # 主题下拉（执行页也方便切）
+        from rollingplan import THEME_OPTIONS
+        self.theme_combo = QComboBox()
+        for key, label in THEME_OPTIONS:
+            self.theme_combo.addItem(label, userData=key)
+        _saved = QSettings("RollingPlan", "Data").value(THEME_KEY, "dark")
+        if _saved not in ("dark", "light", "auto"):
+            _saved = "dark"
+        for i, (k, _) in enumerate(THEME_OPTIONS):
+            if k == _saved:
+                self.theme_combo.setCurrentIndex(i)
+                break
+        self.theme_combo.currentIndexChanged.connect(self.on_theme_changed)
+        top_row.addWidget(QLabel("主题:"))
+        top_row.addWidget(self.theme_combo)
 
         edit_btn = QPushButton("← 返回制定")
         edit_btn.clicked.connect(self.on_switch_to_edit)
-        parent_row.addWidget(edit_btn)
-        layout.addLayout(parent_row)
+        top_row.addWidget(edit_btn)
+        layout.addLayout(top_row)
 
-        # 信息行
-        info_row = QHBoxLayout()
+        # ============ 日期 + 进度（中等字号）============
         self.date_label = QLabel()
-        self.date_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        info_row.addWidget(self.date_label)
+        self.date_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        self.date_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.date_label)
 
         self.progress_label = QLabel()
-        info_row.addWidget(self.progress_label)
-        info_row.addStretch()
-        layout.addLayout(info_row)
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setStyleSheet("color: gray;")
+        layout.addWidget(self.progress_label)
 
-        # 今天
-        self.day_group = QGroupBox("今天的安排")
+        # ============ 今天：冷调主区 ============
+        # 时段少时居中显示，时段多时自然撑开
         self.day_layout = QVBoxLayout()
-        self.day_group.setLayout(self.day_layout)
-        layout.addWidget(self.day_group)
+        self.day_layout.setSpacing(8)
+        self.day_layout.setAlignment(Qt.AlignCenter)  # 内容垂直居中
+        day_container = QWidget()
+        day_container.setLayout(self.day_layout)
+        layout.addWidget(day_container, stretch=1)
 
-        # 额外安排
+        # ============ 主操作大按钮（两个并列、加大高度）============
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
+
+        self.add_next_btn = QPushButton("➕ 加一个")
+        self.add_next_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        self.add_next_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 14px; border-radius: 6px;")
+        self.add_next_btn.setMinimumHeight(50)
+        self.add_next_btn.clicked.connect(self.on_add_next)
+        action_row.addWidget(self.add_next_btn)
+
+        self.done_btn = QPushButton("✓ 今天完成")
+        self.done_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        self.done_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 14px; border-radius: 6px;")
+        self.done_btn.setMinimumHeight(50)
+        self.done_btn.clicked.connect(self.on_next_day)
+        action_row.addWidget(self.done_btn)
+
+        layout.addLayout(action_row)
+
+        # ============ 次要操作：折叠区（默认收起）============
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setText("更多")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setChecked(False)
+        self.advanced_toggle.setStyleSheet("QToolButton { border: none; color: gray; }")
+        self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.advanced_toggle.setArrowType(Qt.DownArrow)
+        self.advanced_toggle.clicked.connect(self._toggle_advanced)
+        layout.addWidget(self.advanced_toggle)
+
+        self.advanced_container = QWidget()
+        adv_layout = QVBoxLayout(self.advanced_container)
+        adv_layout.setContentsMargins(0, 4, 0, 0)
+        adv_layout.setSpacing(8)
+
+        # 次要按钮行：退回 + 添加指定
+        sub_row = QHBoxLayout()
+        self.return_btn = QPushButton("⤴ 退回")
+        self.return_btn.clicked.connect(self.on_return)
+        sub_row.addWidget(self.return_btn)
+        self.add_specific_btn = QPushButton("⋯ 添加指定")
+        self.add_specific_btn.setStyleSheet("color: #666;")
+        self.add_specific_btn.clicked.connect(self.on_add_specific)
+        sub_row.addWidget(self.add_specific_btn)
+        sub_row.addStretch()
+        adv_layout.addLayout(sub_row)
+
+        # 额外安排（折叠在 advanced 里）
         self.extra_group = QGroupBox("额外安排")
         self.extra_layout = QVBoxLayout()
         self.extra_group.setLayout(self.extra_layout)
-        layout.addWidget(self.extra_group)
+        adv_layout.addWidget(self.extra_group)
 
-        # 操作按钮
-        roll_row = QHBoxLayout()
-
-        self.add_next_btn = QPushButton("➕ 加一个")
-        self.add_next_btn.setFont(QFont("Microsoft YaHei", 11))
-        self.add_next_btn.setStyleSheet("background-color: #2196F3; color: white;")
-        self.add_next_btn.clicked.connect(self.on_add_next)
-        roll_row.addWidget(self.add_next_btn)
-
-        self.return_btn = QPushButton("⤴ 退回")
-        self.return_btn.setFont(QFont("Microsoft YaHei", 11))
-        self.return_btn.clicked.connect(self.on_return)
-        roll_row.addWidget(self.return_btn)
-
-        self.done_btn = QPushButton("✓ 今天完成")
-        self.done_btn.setFont(QFont("Microsoft YaHei", 11))
-        self.done_btn.setStyleSheet("background-color: #4CAF50; color: white;")
-        self.done_btn.clicked.connect(self.on_next_day)
-        roll_row.addWidget(self.done_btn)
-
-        # 次要操作：添加指定时段
-        self.add_specific_btn = QPushButton("⋯ 添加指定")
-        self.add_specific_btn.setFont(QFont("Microsoft YaHei", 10))
-        self.add_specific_btn.setStyleSheet("color: #666;")
-        self.add_specific_btn.clicked.connect(self.on_add_specific)
-        roll_row.addWidget(self.add_specific_btn)
-
-        layout.addLayout(roll_row)
-
-        # 日历
+        # 计划日历（折叠在 advanced 里）
         cal_group = QGroupBox("计划日历")
-        cal_layout = QVBoxLayout()
+        cal_inner = QVBoxLayout()
         self.calendar_area = QTextEdit()
         self.calendar_area.setReadOnly(True)
-        self.calendar_area.setMaximumHeight(160)
-        cal_layout.addWidget(self.calendar_area)
-        cal_group.setLayout(cal_layout)
-        layout.addWidget(cal_group)
+        self.calendar_area.setMaximumHeight(140)
+        cal_inner.addWidget(self.calendar_area)
+        cal_group.setLayout(cal_inner)
+        adv_layout.addWidget(cal_group)
+
+        self.advanced_container.setVisible(False)
+        layout.addWidget(self.advanced_container)
 
         self.setLayout(layout)
+
+    def _toggle_advanced(self):
+        """切换「更多」折叠区显示"""
+        checked = self.advanced_toggle.isChecked()
+        self.advanced_container.setVisible(checked)
+        self.advanced_toggle.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+
+    def on_theme_changed(self, idx):
+        """执行页主题切换（与制定页同步）"""
+        key = self.theme_combo.itemData(idx)
+        if not key:
+            return
+        apply_theme(QApplication.instance(), key)
+        s = QSettings("RollingPlan", "Data")
+        s.setValue(THEME_KEY, key)
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -1059,11 +1167,13 @@ class PlanExecutor(QWidget):
 
         slot_label = QLabel(f"{prefix}{slot_name}:")
         slot_label.setMinimumWidth(120 if is_extra else 80)
-        slot_label.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
+        slot_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         slot_label.setStyleSheet(f"color: {color};")
         row.addWidget(slot_label)
 
         plan_label = QLabel(plan if plan else "(无)")
+        if plan:
+            plan_label.setFont(QFont("Microsoft YaHei", 14))
         if not plan:
             plan_label.setStyleSheet("color: gray;")
         else:

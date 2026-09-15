@@ -4,7 +4,16 @@
 
 ## 版本
 
-### v0.5（当前）
+### v0.6（当前）
+- **冷调极简 UI**：
+  - 制定计划页：分类列表 / 计划清单 / 时段 三个 GroupBox 默认收起，点击标题展开（QToolButton 手动控制 visibility，绕开 pyqtdarktheme 下 QGroupBox checkable 不生效的问题）
+  - 执行计划页：底部「更多 ▾」折叠区收纳次要操作（退回 / 添加指定 / 额外安排 / 计划日历）
+  - 执行计划页：「今天」时段垂直居中显示（`Qt.AlignCenter`），主操作按钮紧贴底部
+  - 执行计划页：主操作按钮加大（`minHeight=50` + 圆角 6px + 内边距 14px）
+  - 执行计划页：时段字号加大到 14pt
+- **执行页主题切换**：从制定页下沉到执行页（两页都能切），QSettings 共享
+
+### v0.5
 - **三主题切换**：DarkFlat / LightClean / System(跟随系统),通过 `pyqtdarktheme` 实现
 - 主题切换入口：制定计划页左上角下拉框，实时生效
 - 选择跨会话持久化（QSettings `RollingPlan/theme`）
@@ -93,6 +102,7 @@ python test_v2_2.py                 # v0.3 核心逻辑（30 断言）
 python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
 python test_reset_v04.py            # v0.4 重置进度（24 断言）
 python test_theme_v05.py            # v0.5 主题切换（17 断言）
+python test_minimal_v06.py          # v0.6 极简 UI 折叠（32 断言）
 ```
 
 覆盖：
@@ -105,3 +115,5 @@ python test_theme_v05.py            # v0.5 主题切换（17 断言）
 - 旧格式向后兼容
 - 重置进度保留 plans/time_slots/start_date
 - 多分类隔离（只重置当前分类）
+- 三主题切换 + QSettings 持久化
+- 冷调极简 UI：折叠分组 + 时段居中 + 大按钮

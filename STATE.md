@@ -1,16 +1,25 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-15 19:45
+> **最后更新**：2026-09-15 20:10
 > **会话位置**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **远程**：本地领先 origin/main 7 个 commit（未 push）
+> **远程**：本地领先 origin/main 8 个 commit（未 push）
 
 ## 项目一句话
 
-PyQt5 桌面应用。**v0.5 已完成**：「日常计划管理」——多分类（工作/学习/健身...）的计划按天滚动分配，支持自动顺延加一个额外安排 + 指定时段添加 + 导入/导出 JSON 备份 + 重置当前分类进度 + **三主题切换（Dark/Light/System）**。
+PyQt5 桌面应用。**v0.6 已完成**：「日常计划管理」——多分类（工作/学习/健身...）的计划按天滚动分配，支持自动顺延加一个额外安排 + 指定时段添加 + 导入/导出 JSON 备份 + 重置当前分类进度 + 三主题切换 + **冷调极简 UI（折叠分组 + 居中主区 + 大按钮）**。
 
 ## 当前版本
 
-**v0.5** — 4 commits on `main`（v0.4 import/export + reset + v0.5 theme）
+**v0.6** — 5 commits on `main`
+
+### v0.6 核心改动（已落地）
+- **冷调极简 UI**：制定计划页三个 GroupBox（分类列表/计划清单/时段）默认收起，用 QToolButton 手动控制 visibility（绕开 pyqtdarktheme 下 QGroupBox checkable 不生效的坑）
+- **执行计划页底部「更多 ▾」**：收纳退回 / 添加指定 / 额外安排 / 计划日历等次要操作
+- **「今天」主区垂直居中**：日期+进度靠上，时段居中显示，主操作按钮紧贴底部
+- **主操作按钮加大**：minHeight=50 + 圆角 6px + 内边距 14px + 字号 14pt
+- **时段字号加大到 14pt**
+- **执行页主题切换**：从制定页下沉到执行页，两页都能切
+- 新增 `test_minimal_v06.py`：32 个断言全过
 
 ### v0.5 核心改动（已落地）
 - **三主题切换**：DarkFlat / LightClean / System（跟随系统），通过 `pyqtdarktheme` 实现
@@ -53,7 +62,8 @@ PyQt5 桌面应用。**v0.5 已完成**：「日常计划管理」——多分�
 
 ## 仓库状态
 
-- **本地**：`main` 分支领先 origin/main 7 个 commit（未 push）
+- **本地**：`main` 分支领先 origin/main 8 个 commit（未 push）
+  - `31299fa` v0.5: Three-theme switcher with pyqtdarktheme
   - `02ec427` v0.4: Reset current parent progress
   - `344d927` v0.4: Import/Export JSON for plan backup
   - `f44e944` Add STATE.md: working state snapshot for future sessions
@@ -63,7 +73,7 @@ PyQt5 桌面应用。**v0.5 已完成**：「日常计划管理」——多分�
   - `9dc7387` Add build_windows.bat
   - `3eac8e1` v0.2: 多母计划 + 借指定时间段 + 链式借
   - `254442a` Initial commit: RollingPlan v0.1
-  - + 待提交: v0.5 theme
+  - + 待提交: v0.6 minimal UI
 
 - **验收副本**：`D:\0-task\rollingplan\`（每次新会话开始时从此处复制运行）
   - `rollingplan.py` (~47000 字节)
@@ -79,11 +89,12 @@ PyQt5 桌面应用。**v0.5 已完成**：「日常计划管理」——多分�
 
 ## 测试状态
 
-**总计 120 个断言全过**：
+**总计 152 个断言全过**：
 - `test_v2_2.py`：**30 断言**（v0.3 核心）
 - `test_import_export_v04.py`：**49 断言**（v0.4 导入/导出）
 - `test_reset_v04.py`：**24 断言**（v0.4 重置进度）
 - `test_theme_v05.py`：**17 断言**（v0.5 主题）
+- `test_minimal_v06.py`：**32 断言**（v0.6 极简 UI）
 
 v0.5 测试覆盖：
 - THEME_OPTIONS 三选项完整且 key 有效
@@ -102,7 +113,7 @@ v0.5 测试覆盖：
 | Git 仓库 | `/mnt/d/0_git/RollingPlan/` |
 | 验收副本 | `/mnt/d/0-task/rollingplan/` |
 | Python venv | `/mnt/d/0-task/rollingplan/.venv/` |
-| 启动测试 | `cd /mnt/d/0-task/rollingplan && QT_QPA_PLATFORM=offscreen .venv/bin/python test_theme_v05.py` |
+| 启动测试 | `cd /mnt/d/0-task/rollingplan && QT_QPA_PLATFORM=offscreen .venv/bin/python test_minimal_v06.py` |
 
 ## 还没做的方向（按之前提的）
 
@@ -126,7 +137,7 @@ v0.5 测试覆盖：
 **选项 C**：重构分模块
 - 读这个 STATE.md 就知道当前状态，按 5 个模块拆（model/scheduler/editor/executor/theme）
 
-**待 push**：本地领先 origin/main 7 个 commit，下次会话开头用 `git push` 推上去（或开新工作前推）。
+**待 push**：本地领先 origin/main 8 个 commit，下次会话开头用 `git push` 推上去（或开新工作前推）。
 
 ## 备忘
 
@@ -138,3 +149,5 @@ v0.5 测试覆盖：
 - **WSL/DrvFS I/O 坑**：`dist/*.exe` 这类大文件在 WSL 里 rm 偶尔报 Input/output error，Windows 端 `del` 也可能拒绝访问。绕过办法：Windows 资源管理器手动删
 - **pyqtdarktheme + PyInstaller**：必须 `--collect-all qdarktheme`，否则 exe 启动会报 ImportError 或主题 QSS 找不到
 - **auto 主题在 WSL offscreen 下 darkdetect 会卡**——测试只测 dark/light，不测 auto
+- **pyqtdarktheme + QGroupBox checkable 不工作**：checked=False 时子 widget 仍然 visible（pyqtdarktheme stylesheet 覆盖了 QGroupBox 默认折叠行为）。v0.6 改用 QToolButton 手动控制 body widget 的 visibility
+- **isVisible() 检查时父链必须至少一层可见**：构造 widget 但不 show()，所有子 widget 的 isVisible() 都返回 False。测试时必须 widget.show() + processEvents()
