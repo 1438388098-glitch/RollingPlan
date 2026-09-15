@@ -37,6 +37,7 @@ class ParentPlan:
         self.start_date = QDate.currentDate()
         self.current_day = 0
         self.borrowed_slots = []  # [[slot_name, plan, day, slot_idx], ...] 按借的顺序
+        self.completed_today = []  # v0.8: 今天已完成的 slot_idx 列表（推进到下一天时清空）
 
     def to_dict(self):
         return {
@@ -46,6 +47,7 @@ class ParentPlan:
             "start_date": self.start_date.toString("yyyy-MM-dd"),
             "current_day": self.current_day,
             "borrowed_slots": self.borrowed_slots,
+            "completed_today": getattr(self, "completed_today", []),  # v0.8
         }
 
     def from_dict(self, d):
@@ -57,11 +59,13 @@ class ParentPlan:
             self.start_date = QDate.fromString(sd, "yyyy-MM-dd")
         self.current_day = d.get("current_day", 0)
         self.borrowed_slots = d.get("borrowed_slots", [])
+        self.completed_today = d.get("completed_today", [])  # v0.8
 
     def reset_progress(self):
         """v0.4：重置进度。plans/time_slots/start_date 不变。"""
         self.current_day = 0
         self.borrowed_slots = []
+        self.completed_today = []  # v0.8
 
 
 class PlanData:
@@ -251,7 +255,11 @@ class PlanScheduler:
         return result
 
     def get_day_plans(self, day_index):
-        """第 day_index 天的计划切片 [(slot_name, plan), ...]"""
+        """第 day_index 天的计划切片 [(slot_name, plan), ...]
+        v0.8: 当前天（current_day）的已归档 slot（completed_today）会优先用
+        borrowed_slots 里同 slot_name 的 plan 替代（滚动效果：下一个 plan 滚入），
+        否则返回 None（隐藏）。
+        """
         spd = self.slots_per_day()
         if spd == 0:
             return []
@@ -259,8 +267,25 @@ class PlanScheduler:
         start = day_index * spd
         plans_slice = self.p.plans[start:start + spd]
 
+        # v0.8: 当前天的已归档 slot 用 borrow 替代（滚动：下一个 plan 滚入）
+        completed = set(getattr(self.p, "completed_today", [])) if day_index == self.p.current_day else set()
+        # 按 borrowed 顺序收集每个 slot_name 的 plan 池
+        # 完成 slot_idx 时调 borrow_slot(sname) 借一条进池 → 下一个 plan 滚入
+        borrowed_by_name = {}  # {slot_name: [plan, ...]}
+        if completed:
+            for entry in self.get_borrowed_slots_with_meta():
+                slot_name, plan, _, _ = entry
+                borrowed_by_name.setdefault(slot_name, []).append(plan)
+
         result = []
         for i, (sname, sidx) in enumerate(slots):
+            if i in completed:
+                # 已归档：从 borrowed 池取一个填入（下一个 plan 滚上）
+                if borrowed_by_name.get(sname):
+                    result.append((sname, borrowed_by_name[sname].pop(0)))
+                else:
+                    result.append((sname, None))
+                continue
             if i < len(plans_slice):
                 result.append((sname, plans_slice[i]))
             else:
@@ -383,6 +408,35 @@ class PlanScheduler:
     def can_return(self):
         return len(self.p.borrowed_slots) > 0
 
+    def complete_today_slot(self, slot_idx):
+        """v0.8: 归档今天某个 slot 的计划，下一个同 slot_name 的 plan 自动滚入。
+        - 把 (current_day, slot_idx) 加入 completed_today
+        - 立刻 borrow_slot(sname) 从未来取下一个
+        - 如果没的可借，该 slot 在 UI 上变"空"
+        """
+        # 找 slot_name
+        day_plans = self.get_day_plans(self.p.current_day)
+        if slot_idx < 0 or slot_idx >= len(day_plans):
+            return False
+        sname = day_plans[slot_idx][0]
+        # 标记完成
+        if "completed_today" not in self.p.__dict__:
+            self.p.completed_today = []
+        if slot_idx not in self.p.completed_today:
+            self.p.completed_today.append(slot_idx)
+        # 立刻借同 slot_name 的下一个 plan 滚入
+        self.borrow_slot(sname)
+        self.save_parent()
+        return True
+
+    def can_complete_today_slot(self, slot_idx):
+        """能否归档今天某个 slot（有 plan 就能归档）"""
+        day_plans = self.get_day_plans(self.p.current_day)
+        if slot_idx < 0 or slot_idx >= len(day_plans):
+            return False
+        _, plan = day_plans[slot_idx]
+        return plan is not None
+
     def save_parent(self):
         pass  # 占位，实际由外部 PlanData.save() 触发
 
@@ -473,7 +527,7 @@ class PlanEditor(QWidget):
         self._parent_toggle.setText("▸ 计划分类")
         self._parent_toggle.setCheckable(True)
         self._parent_toggle.setChecked(False)
-        self._parent_toggle.setStyleSheet("QToolButton { border: none; color: #888; padding: 4px; }")
+        self._parent_toggle.setStyleSheet("QToolButton { border: none; padding: 4px; }")
         self._parent_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self._parent_toggle.clicked.connect(self._toggle_parent_group)
         self._parent_body = QWidget()
@@ -516,7 +570,7 @@ class PlanEditor(QWidget):
         self._plan_toggle.setText("▸ 计划清单")
         self._plan_toggle.setCheckable(True)
         self._plan_toggle.setChecked(False)
-        self._plan_toggle.setStyleSheet("QToolButton { border: none; color: #888; padding: 4px; }")
+        self._plan_toggle.setStyleSheet("QToolButton { border: none; padding: 4px; }")
         self._plan_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self._plan_toggle.clicked.connect(self._toggle_plan_group)
         self._plan_body = QWidget()
@@ -558,7 +612,7 @@ class PlanEditor(QWidget):
         self._slot_toggle.setText("▸ 时段")
         self._slot_toggle.setCheckable(True)
         self._slot_toggle.setChecked(False)
-        self._slot_toggle.setStyleSheet("QToolButton { border: none; color: #888; padding: 4px; }")
+        self._slot_toggle.setStyleSheet("QToolButton { border: none; padding: 4px; }")
         self._slot_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self._slot_toggle.clicked.connect(self._toggle_slot_group)
         self._slot_body = QWidget()
@@ -1053,13 +1107,14 @@ class PlanExecutor(QWidget):
 
         # ============ 日期 + 进度（中等字号）============
         self.date_label = QLabel()
-        self.date_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        self.date_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
         self.date_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.date_label)
 
         self.progress_label = QLabel()
         self.progress_label.setAlignment(Qt.AlignCenter)
-        self.progress_label.setStyleSheet("color: gray;")
+        self.progress_label.setFont(QFont("Microsoft YaHei", 13))
+        # 不设 inline color — QSS 接管（dark 下浅灰、light 下深色都能看见）
         layout.addWidget(self.progress_label)
 
         # ============ 今天：冷调主区 ============
@@ -1096,7 +1151,7 @@ class PlanExecutor(QWidget):
         self.advanced_toggle.setText("更多")
         self.advanced_toggle.setCheckable(True)
         self.advanced_toggle.setChecked(False)
-        self.advanced_toggle.setStyleSheet("QToolButton { border: none; color: gray; }")
+        self.advanced_toggle.setStyleSheet("QToolButton { border: none; }")
         self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.advanced_toggle.setArrowType(Qt.DownArrow)
         self.advanced_toggle.clicked.connect(self._toggle_advanced)
@@ -1162,31 +1217,49 @@ class PlanExecutor(QWidget):
             if w:
                 w.deleteLater()
 
-    def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False):
+    def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False,
+                       slot_idx=None, show_complete=False):
+        """添加一行时段。is_extra=True 时是"额外安排"，左边框绿色 + 浅绿背景。
+        v0.8: slot_idx + show_complete 时，行末加 ✓ 完成按钮（归档并滚动）。
+        文字色由 QSS 接管（不设 inline color），避免深色主题下黑字看不见。
+        """
         row = QHBoxLayout()
         prefix = "⤴ " if is_extra else "  "
-        color = "#1B5E20" if is_extra else "black"
         bg = "#E8F5E9" if is_extra else None
+        border_color = "#2E7D32" if is_extra else "#1E88E5"
 
         slot_label = QLabel(f"{prefix}{slot_name}:")
         slot_label.setMinimumWidth(120 if is_extra else 80)
-        slot_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
-        slot_label.setStyleSheet(f"color: {color};")
+        slot_label.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         row.addWidget(slot_label)
 
-        plan_label = QLabel(plan if plan else "(无)")
         if plan:
-            plan_label.setFont(QFont("Microsoft YaHei", 14))
-        if not plan:
-            plan_label.setStyleSheet("color: gray;")
+            plan_label = QLabel(plan)
+            plan_label.setFont(QFont("Microsoft YaHei", 16))
         else:
-            plan_label.setStyleSheet(f"color: {color};")
+            plan_label = QLabel("(无)")
+            plan_label.setFont(QFont("Microsoft YaHei", 14))
+            plan_label.setStyleSheet("font-style: italic;")
         row.addWidget(plan_label)
-        row.addStretch()
+        row.addStretch(1)
+
+        # v0.8: 完成按钮（只有今天的 slot + 有 plan 时显示）
+        if show_complete and plan and slot_idx is not None:
+            complete_btn = QPushButton("✓ 完成")
+            complete_btn.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+            complete_btn.setStyleSheet(
+                "QPushButton { background-color: #4CAF50; color: white; "
+                "padding: 6px 14px; border-radius: 4px; }"
+                "QPushButton:hover { background-color: #43A047; }"
+                "QPushButton:pressed { background-color: #388E3C; }"
+            )
+            complete_btn.setCursor(Qt.PointingHandCursor)
+            complete_btn.clicked.connect(lambda checked=False, idx=slot_idx: self.on_complete_slot(idx))
+            row.addWidget(complete_btn)
 
         container = QWidget()
         if bg:
-            container.setStyleSheet(f"background-color: {bg}; border-left: 3px solid {color}; padding-left: 4px;")
+            container.setStyleSheet(f"background-color: {bg}; border-left: 3px solid {border_color}; padding-left: 4px;")
         cl = QHBoxLayout(container)
         cl.setContentsMargins(6, 2, 6, 2)
         cl.addLayout(row)
@@ -1215,15 +1288,16 @@ class PlanExecutor(QWidget):
             lbl.setAlignment(Qt.AlignCenter)
             self.day_layout.addWidget(lbl)
         else:
-            for sname, plan in day_plans:
-                self._add_slot_row(self.day_layout, sname, plan, is_extra=False)
+            for sidx, (sname, plan) in enumerate(day_plans):
+                self._add_slot_row(self.day_layout, sname, plan, is_extra=False,
+                                   slot_idx=sidx, show_complete=True)
 
         # 额外安排
         extra = self.scheduler.get_extra_plans()
         if not extra:
             lbl = QLabel("还没有额外安排")
             lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet("color: gray;")
+            lbl.setStyleSheet("font-style: italic;")
             self.extra_layout.addWidget(lbl)
         else:
             for sname, plan in extra:
@@ -1291,6 +1365,12 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.refresh()
 
+    def on_complete_slot(self, slot_idx):
+        """v0.8: 归档今天某个 slot，归档后下一个同 slot_name plan 自动滚入"""
+        if self.scheduler.complete_today_slot(slot_idx):
+            self.data.save()
+            self.refresh()
+
     def on_next_day(self):
         p = self.data.current_parent
         scheduler = self.scheduler
@@ -1317,6 +1397,7 @@ class PlanExecutor(QWidget):
 
         p.current_day += 1
         p.borrowed_slots = []  # 切天时清空额外安排
+        p.completed_today = []  # v0.8: 切天时清空今天的归档
         self.data.save()
         self.refresh()
 
@@ -1397,7 +1478,7 @@ QWidget {
     background-color: #1e1e1e;
     color: #cccccc;
     font-family: "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 11pt;
+    font-size: 13pt;
 }
 QMainWindow, QDialog {
     background-color: #1e1e1e;
@@ -1548,7 +1629,7 @@ QWidget {
     background-color: #f5f5f5;
     color: #222222;
     font-family: "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif;
-    font-size: 11pt;
+    font-size: 13pt;
 }
 QMainWindow, QDialog {
     background-color: #f5f5f5;
