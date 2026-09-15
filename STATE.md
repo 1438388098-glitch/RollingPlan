@@ -1,18 +1,45 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-15 22:15
+> **最后更新**：2026-09-15 22:45
 > **会话位置**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **远程**：v0.9 提交后与 `origin/main` 同步（无未推提交）
+> **远程**：v0.10 提交后与 `origin/main` 同步（无未推提交）
 
 ## 项目一句话
 
-PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计划当一列**待办队列**，时段是「当天承装队列的栏位」；完成一条就归档、后面整体上滚一格（额外轮的跟着滚上来）。多分类（工作/学习/健身…）+ 加一个 / 添加指定 / 退回（可撤销完成）+ 导入导出 JSON 备份 + 重置进度 + 三主题（自写 QSS）+ 冷调极简 UI。
+PyQt5 桌面应用。**v0.10 已完成**：「日常计划管理」——计划是一列**待办队列**，时段是「当天承装队列的栏位」；每格有两个动作：「仅完成」（标记完成、列表不动）和「完成并滚动」（归档 + 后面整体上滚一格，腾出来的最后一格只由额外轮补）。多分类 + 加一个 / 添加指定 / 退回（可撤销完成）+ 导入导出 JSON + 重置进度 + 三主题（自写 QSS）+ 冷调极简 UI。
 
 ## 当前版本
 
-**v0.9** — 17 commits on `main`，已全部 push
+**v0.10** — 18 commits on `main`，已全部 push
 
-## v0.9 核心改动（已落地）—— 重写「完成并滚动」
+## v0.10 核心改动（已落地）—— 仅完成 / 完成并滚动
+
+用户反馈（v0.9 之后）：「完成」要有两种 —— 一种只标记、不动列表；一种才滚动。
+而且滚动的最后一格**不许从第二天拉计划**。
+
+**规则**：
+- **仅完成**：这一格标记完成 —— 计划留在格里（灰字 + 删除线 + ✓），记进该时段的**归档备注**，
+  按钮变灰，**后面的计划不滚动**
+- **完成并滚动**：归档这一格，后面的整体上滚一格
+- 按过「仅完成」的格子，之后还能按「完成并滚动」= 解开这一格让它滚（归档与备注不重复记）
+- **腾出来的最后一格只由额外轮补**：额外轮为空就空着，绝不把第二天的计划滚上来
+  - 早1 中2 晚3，点「早 → 完成并滚动」→ 早2 中3 **晚空**（v0.9 会变成晚4 —— 那是这次要修的）
+  - 额外轮 [4] 时 → 早2 中3 晚4
+- **每格各自的归档备注**：行尾小灰字「归档：1、4」
+- 进度：两种完成都 +1（同一格先「仅完成」再「完成并滚动」不重复计数）
+
+**代码**：
+- `ParentPlan` 新增 `inplace_done`（「仅完成」钉住的格）/ `slot_notes`（每格归档备注），
+  两者都按当天的格数在 `normalize()` 里对齐（改过时段数量也能收敛）
+- `PlanScheduler` 新增 `complete_only_slot()` / `can_complete_only()` / `_drop_from_extras()`；
+  `complete_today_slot()` 改为「完成并滚动」；`today_state()` 增加 `row_done` / `notes`，
+  并用 quota（= 格数 - 今天已归档条数）实现「不从第二天补」
+- `undo_complete()` 现在也会解开钉子 + 撤回备注
+- `PlanExecutor`：每格两个按钮、完成态灰字删除线、行尾备注、「今天已完成」标签；
+  `_clear_layout()` 改成 `setParent(None)` + `deleteLater()`（旧控件不再滞留在控件树里）
+- 切天时清空 `inplace_done` / `slot_notes` / 额外轮，`consumed` 按今天真正从队列取走的条数步进
+
+### v0.9 核心改动（已落地）—— 重写「完成并滚动」的语义
 
 **用户报的 bug（v0.8 的错）**：早/中/晚三格、子计划 1..9。点「早1 的完成」，
 它去**借第二天同名的早4** 顶上 → 早 变成 4；任务4 同时出现在第 1 天和第 2 天；
@@ -90,7 +117,7 @@ PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计�
 
 ## 测试状态
 
-**6 个测试文件 / 总计 275 个断言全过，0 失败**（2026-09-15 22:20 于验收副本 .venv 实测）
+**6 个测试文件 / 总计 269 个断言全过，0 失败**（2026-09-15 22:40 于验收副本 .venv 实测）
 
 | 测试文件 | 断言 | 覆盖 |
 |----------|------|------|
@@ -99,14 +126,15 @@ PyQt5 桌面应用。**v0.9 已完成**：「日常计划管理」——把计�
 | `test_reset_v04.py` | **24** | v0.4 重置进度（保留 plans/time_slots/start_date，多分类隔离） |
 | `test_theme_v05.py` | **38** | v0.7 QSS 主题 + QSettings 持久化 + stderr=None 不崩 |
 | `test_minimal_v06.py` | **32** | v0.6 极简 UI 折叠 + 主区居中 + 大按钮 |
-| `test_scroll_v09.py` | **99** | v0.9 队列上滚 / 不重复不丢 / 撤销完成 / 额外轮滚动 / 添加指定 / 旧档迁移 / UI |
+| `test_scroll_v10.py` | **93** | v0.10 仅完成 / 完成并滚动 / 不从第二天补 / 归档备注 / 撤销 / 额外轮 / UI |
 
-`test_complete_v08.py` 已删（它断言的正是 v0.8 那段错的行为，重写成了 `test_scroll_v09.py`）。
+`test_complete_v08.py`（v0.8 的错行为）和 `test_scroll_v09.py`（v0.9 语义）都已删，
+现由 `test_scroll_v10.py` 覆盖。
 
 跑法：
 ```bash
 cd /mnt/d/0-task/rollingplan
-QT_QPA_PLATFORM=offscreen .venv/bin/python test_scroll_v09.py
+QT_QPA_PLATFORM=offscreen .venv/bin/python test_scroll_v10.py
 ```
 
 ## 构建（exe）
@@ -126,7 +154,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 | Git 仓库 | `/mnt/d/0_git/RollingPlan/` |
 | 验收副本 | `/mnt/d/0-task/rollingplan/` |
 | Python venv | `/mnt/d/0-task/rollingplan/.venv/` |
-| 主程序 | `/mnt/d/0_git/RollingPlan/rollingplan.py`（2004 行 / 73674 字节） |
+| 主程序 | `/mnt/d/0_git/RollingPlan/rollingplan.py`（2171 行 / 81706 字节） |
 | 构建脚本 | `/mnt/d/0_git/RollingPlan/build_windows.bat` |
 
 ## 还没做的方向
@@ -147,7 +175,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 
 **选项 A**：从「还没做的方向 2」里挑下一个新功能（快捷键改动最小、见效最快）
 **选项 B**：重构分模块（按 5 个模块拆 model/scheduler/editor/executor/theme）
-**选项 C**：先问用户 v0.9 在真机上用起来对不对（**headless 测试 = 275 断言全过，
+**选项 C**：先问用户 v0.10 在真机上用起来对不对（**headless 测试 = 269 断言全过，
 但视觉/手感没有真机确认** —— 参见下方备忘）
 
 ## 备忘
@@ -159,8 +187,15 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
   stylesheet 里**（v0.8 的暗色黑字事故就是这个），widget 级只写背景色 / 边框色
 - **v0.9 的数据模型**：计划是队列，时段只是当天的栏位。
   改 `PlanScheduler` 时别再把「时段名」当成计划的属性 —— 那是 v0.8 那套错误语义的残留
-- **JSON 字段名**：`borrowed_slots`（额外轮，仍是 `[[slot_name, plan, day, slot_idx], ...]` 结构）、
-  `archived` / `archived_base` / `consumed`（v0.9 新增）。重构时不能改这些键名
+- **v0.10 的显示模型**：今天这一格最多从队列取 (格数 - 今天已归档条数) 条 —— 这就是
+  「腾出来的最后一格不从第二天补」的实现（quota）。改 `today_state()` 时别把这个 quota 去掉，
+  否则第二天的计划又会滚进今天
+- **「仅完成」是钉住（pin）**：`inplace_done[i]` 记着那一格的计划内容，它在格里不走也不占队列配额；
+  滚动的本质是「按 quota 重新从队列取」，所以解开钉子自然就滚了
+- **JSON 字段名**：`borrowed_slots`（额外轮）、`archived` / `archived_base` / `consumed`（v0.9）、
+  `inplace_done` / `slot_notes`（v0.10）。重构时不能改这些键名
+- **刷新 UI 时旧控件要 `setParent(None)`**：只 `deleteLater()` 的话，旧按钮会滞留在控件树里
+  直到事件循环处理删除 —— 测试会抓到旧的（v0.10 被抓到过），界面上也可能闪一下
 - `from_dict` 会迁移 v0.8 的 `completed_today`（slot 序号 → 计划内容）；v0.8 时期自动借进来的
   额外轮条目仍留在 `borrowed_slots` 里，用户可以用「退回」清掉
 - 内部 docstring 还保留「母计划 / 子计划 / 借」等术语（变量名 + 注释）—— 不影响 UI
