@@ -4,7 +4,18 @@
 
 ## 版本
 
-### v0.7（当前）
+### v0.8（当前）
+- **暗色主题文字对比度修复**：
+  - 问题：暗色下槽位的计划名渲染成黑字（非额外安排槽位被硬写 `color: black`），进度标签的 `gray`（`#808080`）在黑底上不可见，toolbutton / label 上一堆 inline `color: #888` 也和 QSS 打架
+  - 修法：删掉**所有** widget 级硬编码文字色 —— 文字色统一交给 QSS（DARK_QSS `#cccccc` / LIGHT_QSS `#222222`），widget 级只保留背景色和边框色
+  - `(无)` 占位文字改用 italic，不再用灰色
+- **字号整体加大**：默认 11pt → 13pt，日期 14pt → 18pt，时段 / 计划名 14pt → 16pt
+- **完成并滚动（complete-and-scroll）**：今天某个时段右侧出现「✓ 完成」按钮 —— 点一下把该槽位的当前计划归档，未来同名时段的下一条计划立刻滚上来（这就是「滚动计划」的手感）；没得借则显示空
+  - 新增 `ParentPlan.completed_today`、`PlanScheduler.complete_today_slot()` / `can_complete_today_slot()`
+  - `completed_today` 随 `to_dict` / `from_dict` 持久化；`on_next_day` 和 `reset_progress` 都会清空它
+- 新增 `test_complete_v08.py`：29 断言
+
+### v0.7
 - **自写 QSS 主题（弃用 pyqtdarktheme）**：
   - 弃用原因：pyqtdarktheme 在 PyInstaller --onefile --windowed 打包后主题切换无效果（无异常无日志，setup_theme() 静默 no-op）
   - 改为 ~30 行自写 QSS（DARK_QSS / LIGHT_QSS），覆盖 QWidget / QMainWindow / QLabel / QLineEdit / QListWidget / QComboBox / QPushButton / QToolButton / QTabWidget / QTabBar（带选中对比度修复） / QGroupBox / QScrollBar / QMenu / QMessageBox / QProgressBar / QCheckBox / QRadioButton / QStatusBar
@@ -79,12 +90,14 @@
 - **借指定时间段**：弹对话框选择"今天借哪个时间段"，会从最靠前的未借走的同名槽位借
 - **链式借**：明天借空了就从后天借
 - **退回**：把额外轮最后 1 个推回去
+- **完成并滚动**：今天某个时段点「✓ 完成」，当前计划归档、未来同名时段的下一条滚上来
+- **主题**：暗色 / 亮色 / 跟随系统，自写 QSS，实时切换并跨会话记住
 - **数据存储**：使用 QSettings 嵌入式保存
 
 ## 使用
 
 ```bash
-pip install PyQt5 pyqtdarktheme
+pip install PyQt5
 python rollingplan.py
 ```
 
@@ -109,17 +122,22 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 - `_future_slot_positions()`：未来可借的位置（day > current_day）
 - `can_borrow_slot(slot_name)` / `borrow_slot(slot_name)`：借指定时间段
 - `return_last_borrowed()`：退回最后借的
+- `complete_today_slot(slot_idx)`：把今天的某个槽位标记为已归档，并借来未来同名时段的下一条（「完成并滚动」）
+- `can_complete_today_slot(slot_idx)`：上面这个能不能点
 - `all_consumed()`：判断全部完成
 
 ## 测试
 
 ```bash
-python test_v2_2.py                 # v0.3 核心逻辑（30 断言）
+python test_v2_2.py                 # v0.3 核心逻辑（33 断言）
 python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
 python test_reset_v04.py            # v0.4 重置进度（24 断言）
-python test_theme_v05.py            # v0.5 主题切换（17 断言）
+python test_theme_v05.py            # v0.7 QSS 主题（38 断言）
 python test_minimal_v06.py          # v0.6 极简 UI 折叠（32 断言）
+python test_complete_v08.py         # v0.8 完成并滚动（29 断言）
 ```
+
+共 6 个文件 / 205 断言，全过。
 
 覆盖：
 - 单母计划 + 借指定时间段
