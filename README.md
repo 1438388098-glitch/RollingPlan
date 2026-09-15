@@ -4,7 +4,14 @@
 
 ## 版本
 
-### v0.4（当前）
+### v0.5（当前）
+- **三主题切换**：DarkFlat / LightClean / System(跟随系统),通过 `pyqtdarktheme` 实现
+- 主题切换入口：制定计划页左上角下拉框，实时生效
+- 选择跨会话持久化（QSettings `RollingPlan/theme`）
+- Tab 文字对比度修复（pyqtdarktheme dark 主题默认未激活 Tab 文字过暗）
+- 缺 `pyqtdarktheme` 时静默回退到默认 Fusion 样式
+
+### v0.4
 - **导入 JSON**：📥 按钮 — 从 JSON 文件加载并覆盖当前数据。先校验结构（parents / plans / time_slots 等基础字段），失败给出具体原因；版本号不匹配拒收。
 - **导出 JSON**：📤 按钮 — 导出当前所有分类为 JSON（含 `version` + `exported_at` 时间戳 + `data` 段）。默认文件名 `RollingPlan_backup_YYYY-MM-DD.json`。
 - **重置当前分类进度**：🔄 按钮 — 把当前分类的 `current_day` 归 0 + `borrowed_slots` 清空。plans / time_slots / start_date 不变。
@@ -52,7 +59,7 @@
 ## 使用
 
 ```bash
-pip install PyQt5
+pip install PyQt5 pyqtdarktheme
 python rollingplan.py
 ```
 
@@ -85,6 +92,7 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 python test_v2_2.py                 # v0.3 核心逻辑（30 断言）
 python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
 python test_reset_v04.py            # v0.4 重置进度（24 断言）
+python test_theme_v05.py            # v0.5 主题切换（17 断言）
 ```
 
 覆盖：

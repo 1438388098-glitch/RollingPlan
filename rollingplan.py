@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox, QTabWidget,
-    QGroupBox, QInputDialog, QFileDialog,
+    QGroupBox, QInputDialog, QFileDialog, QComboBox,
 )
 from PyQt5.QtCore import Qt, QDate, QSettings
 from PyQt5.QtGui import QFont
@@ -427,8 +427,25 @@ class PlanEditor(QWidget):
         title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         layout.addWidget(title)
 
-        # ============ 导入/导出/重置（v0.4）============
+        # ============ 主题 + 导入/导出/重置 ============
         io_row = QHBoxLayout()
+        # 主题切换（最左，全局设置）
+        theme_label = QLabel("主题:")
+        io_row.addWidget(theme_label)
+        from rollingplan import THEME_OPTIONS  # 避免循环引用
+        self.theme_combo = QComboBox()
+        for key, label in THEME_OPTIONS:
+            self.theme_combo.addItem(label, userData=key)
+        # 初始值从 QSettings 读
+        _saved = QSettings("RollingPlan", "Data").value(THEME_KEY, "dark")
+        if _saved not in ("dark", "light", "auto"):
+            _saved = "dark"
+        for i, (k, _) in enumerate(THEME_OPTIONS):
+            if k == _saved:
+                self.theme_combo.setCurrentIndex(i)
+                break
+        self.theme_combo.currentIndexChanged.connect(self.on_theme_changed)
+        io_row.addWidget(self.theme_combo)
         io_row.addStretch()
         reset_btn = QPushButton("🔄 重置当前分类进度")
         reset_btn.setStyleSheet("color: #666;")
@@ -786,6 +803,17 @@ class PlanEditor(QWidget):
         self.save_current_to_parent()
         self.data.save()
         self.preview_calendar()
+
+    # ====== v0.4 主题切换 ======
+
+    def on_theme_changed(self, idx):
+        """主题下拉框变化：应用 + 持久化。"""
+        key = self.theme_combo.itemData(idx)
+        if not key:
+            return
+        apply_theme(QApplication.instance(), key)
+        s = QSettings("RollingPlan", "Data")
+        s.setValue(THEME_KEY, key)
 
     # ====== v0.4 导入/导出 ======
 
@@ -1232,11 +1260,81 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(0)
 
 
+# ============== 主题 ==============
+
+THEME_KEY = "RollingPlan/theme"  # QSettings key
+
+# pyqtdarktheme 支持的主题名
+THEME_OPTIONS = [
+    ("dark", "Dark · 深色扁平"),
+    ("light", "Light · 清爽亮色"),
+    ("auto", "System · 跟随系统"),
+]
+
+
+def apply_theme(app: QApplication, theme_name: str):
+    """应用主题。会同时修复 Tab 文字对比度问题。
+    theme_name: "dark" / "light" / "auto"
+    失败时（pyqtdarktheme 未装）静默回退。
+    """
+    try:
+        import qdarktheme
+    except ImportError:
+        return
+
+    if theme_name == "auto":
+        qdarktheme.setup_theme("auto")
+    else:
+        qdarktheme.setup_theme(theme_name)
+
+    # Tab 文字对比度修复
+    # pyqtdarktheme dark 主题下 QTabBar 默认文字过暗，
+    # palette() 角色映射在该主题下也是暗色，所以直接用具体颜色
+    if theme_name == "dark":
+        tab_color = "#E0E0E0"           # 浅灰
+        tab_selected_bg = "#1E88E5"     # 亮蓝
+        tab_selected_fg = "#FFFFFF"     # 白
+    elif theme_name == "light":
+        tab_color = "#424242"           # 深灰
+        tab_selected_bg = "#1976D2"     # 蓝
+        tab_selected_fg = "#FFFFFF"     # 白
+    else:  # auto
+        tab_color = "palette(bright-text)"
+        tab_selected_bg = "palette(highlight)"
+        tab_selected_fg = "palette(highlighted-text)"
+
+    tab_fix = f"""
+    QTabBar::tab {{
+        color: {tab_color};
+        padding: 6px 14px;
+    }}
+    QTabBar::tab:selected {{
+        color: {tab_selected_fg};
+        background: {tab_selected_bg};
+        font-weight: bold;
+    }}
+    QTabBar::tab:hover:!selected {{
+        color: palette(text);
+    }}
+    """
+    # 合并到现有 stylesheet（保留 inline 控件级别样式）
+    current = app.styleSheet()
+    app.setStyleSheet(current + tab_fix)
+
+
 # ============== 入口 ==============
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    # 从 QSettings 读取上次主题，默认 dark
+    s = QSettings("RollingPlan", "Data")
+    saved_theme = s.value(THEME_KEY, "dark")
+    if saved_theme not in ("dark", "light", "auto"):
+        saved_theme = "dark"
+    apply_theme(app, saved_theme)
+
     win = MainWindow()
     win.show()
     sys.exit(app.exec_())
