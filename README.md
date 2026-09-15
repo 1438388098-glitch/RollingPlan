@@ -34,14 +34,18 @@ pip install PyQt5
 python rollingplan.py
 ```
 
-## 打包成 exe
+## 打包成 Windows exe
 
-```bash
-pip install pyinstaller
+**前提**：Windows 上装了 Python 3.10+，且 "Add Python to PATH" 已勾选。
+
+**方法 1（推荐）**：双击 `build_windows.bat`，自动装依赖 + 打包
+**方法 2**：手动执行
+```cmd
+pip install PyQt5 pyinstaller
 pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 ```
 
-生成的 exe 在 `dist/RollingPlan.exe`。
+生成的 exe 在 `dist\RollingPlan.exe`。
 
 ## 核心逻辑
 
