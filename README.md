@@ -4,7 +4,23 @@
 
 ## 版本
 
-### v0.6（当前）
+### v0.7（当前）
+- **自写 QSS 主题（弃用 pyqtdarktheme）**：
+  - 弃用原因：pyqtdarktheme 在 PyInstaller --onefile --windowed 打包后主题切换无效果（无异常无日志，setup_theme() 静默 no-op）
+  - 改为 ~30 行自写 QSS（DARK_QSS / LIGHT_QSS），覆盖 QWidget / QMainWindow / QLabel / QLineEdit / QListWidget / QComboBox / QPushButton / QToolButton / QTabWidget / QTabBar（带选中对比度修复） / QGroupBox / QScrollBar / QMenu / QMessageBox / QProgressBar / QCheckBox / QRadioButton / QStatusBar
+  - 仍保留 widget 级 inline stylesheet（主操作蓝底 #2196F3 / 完成绿底 #4CAF50 / 额外安排浅绿 #E8F5E9）
+  - auto 主题：Windows 走注册表 `AppsUseLightTheme`，macOS 走 defaults
+  - 打包小 ~5MB，无外部依赖
+- **v0.6 冷调极简 UI**（保留）：
+  - 制定计划页：分类列表 / 计划清单 / 时段 三个 GroupBox 默认收起，点击标题展开（QToolButton 手动控制 visibility）
+  - 执行计划页：底部「更多 ▾」折叠区收纳次要操作（退回 / 添加指定 / 额外安排 / 计划日历）
+  - 执行页主区「今天」居中 + 两个大按钮（蓝底+加一个 / 绿底今天完成）
+  - 主题下拉框在制定页 + 执行页都可见
+- **v0.5/v0.6.1/v0.6.2 调试日志**：
+  - `~/.hermes_cache/rollingplan_debug.log`（滚动 512KB×2）
+  - 解决 `--windowed` 下 sys.stderr=None 抛 AttributeError（_log 全 try/except）
+
+### v0.6
 - **冷调极简 UI**：
   - 制定计划页：分类列表 / 计划清单 / 时段 三个 GroupBox 默认收起，点击标题展开（QToolButton 手动控制 visibility，绕开 pyqtdarktheme 下 QGroupBox checkable 不生效的问题）
   - 执行计划页：底部「更多 ▾」折叠区收纳次要操作（退回 / 添加指定 / 额外安排 / 计划日历）
