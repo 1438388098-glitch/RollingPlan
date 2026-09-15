@@ -54,6 +54,11 @@ class ParentPlan:
         self.current_day = d.get("current_day", 0)
         self.borrowed_slots = d.get("borrowed_slots", [])
 
+    def reset_progress(self):
+        """v0.4：重置进度。plans/time_slots/start_date 不变。"""
+        self.current_day = 0
+        self.borrowed_slots = []
+
 
 class PlanData:
     """全局数据"""
@@ -422,9 +427,13 @@ class PlanEditor(QWidget):
         title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         layout.addWidget(title)
 
-        # ============ 导入/导出（v0.4）============
+        # ============ 导入/导出/重置（v0.4）============
         io_row = QHBoxLayout()
         io_row.addStretch()
+        reset_btn = QPushButton("🔄 重置当前分类进度")
+        reset_btn.setStyleSheet("color: #666;")
+        reset_btn.clicked.connect(self.on_reset_progress)
+        io_row.addWidget(reset_btn)
         import_btn = QPushButton("📥 导入 JSON")
         import_btn.setStyleSheet("color: #666;")
         import_btn.clicked.connect(self.on_import)
@@ -779,6 +788,40 @@ class PlanEditor(QWidget):
         self.preview_calendar()
 
     # ====== v0.4 导入/导出 ======
+
+    def on_reset_progress(self):
+        """重置当前分类进度：current_day=0, borrowed_slots=[]。
+        plans/time_slots/start_date 不变。
+        """
+        cp = self.data.current_parent
+        if cp.current_day == 0 and not cp.borrowed_slots:
+            QMessageBox.information(
+                self, "提示",
+                f"分类「{cp.name}」进度已是初始状态（第 1 天），无需重置。",
+            )
+            return
+
+        borrowed_n = len(cp.borrowed_slots)
+        confirm = QMessageBox.question(
+            self, "确认重置进度",
+            f"将重置分类「{cp.name}」的进度：\n"
+            f"  • 当前天：第 {cp.current_day + 1} 天 → 第 1 天\n"
+            f"  • 额外安排：{borrowed_n} 条 → 清空\n\n"
+            f"计划内容、时段、起始日期不变。\n"
+            f"确认重置？",
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        cp.reset_progress()
+        self.data.save()
+        if self.on_data_reloaded:
+            self.on_data_reloaded()  # executor 也要刷
+        self.refresh_all()
+        QMessageBox.information(
+            self, "重置完成",
+            f"分类「{cp.name}」进度已重置为第 1 天。",
+        )
 
     def on_export(self):
         """导出当前所有分类为 JSON"""

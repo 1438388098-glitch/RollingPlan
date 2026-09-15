@@ -7,6 +7,7 @@
 ### v0.4（当前）
 - **导入 JSON**：📥 按钮 — 从 JSON 文件加载并覆盖当前数据。先校验结构（parents / plans / time_slots 等基础字段），失败给出具体原因；版本号不匹配拒收。
 - **导出 JSON**：📤 按钮 — 导出当前所有分类为 JSON（含 `version` + `exported_at` 时间戳 + `data` 段）。默认文件名 `RollingPlan_backup_YYYY-MM-DD.json`。
+- **重置当前分类进度**：🔄 按钮 — 把当前分类的 `current_day` 归 0 + `borrowed_slots` 清空。plans / time_slots / start_date 不变。
 - 数据格式向后兼容无 wrapper 的旧版 `to_dict()` 输出。
 
 ### v0.3
@@ -81,8 +82,9 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 ## 测试
 
 ```bash
-python test_v2_2.py          # v0.3 核心逻辑（30 断言）
-python test_import_export_v04.py   # v0.4 导入/导出（49 断言）
+python test_v2_2.py                 # v0.3 核心逻辑（30 断言）
+python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
+python test_reset_v04.py            # v0.4 重置进度（24 断言）
 ```
 
 覆盖：
@@ -93,3 +95,5 @@ python test_import_export_v04.py   # v0.4 导入/导出（49 断言）
 - 导入/导出 round-trip
 - JSON 结构校验失败处理（语法错/缺字段/类型错/版本不匹配）
 - 旧格式向后兼容
+- 重置进度保留 plans/time_slots/start_date
+- 多分类隔离（只重置当前分类）
