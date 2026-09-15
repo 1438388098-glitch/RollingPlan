@@ -1374,10 +1374,12 @@ class MainWindow(QMainWindow):
 
 
 # ============== 主题 ==============
+# v0.7: 弃用 pyqtdarktheme，自己写 QSS。理由：pyqtdarktheme 在 PyInstaller --onefile
+# 打包后主题切换不生效（可能是 _os_appearance 模块的兼容性问题），且自写 QSS 只需
+# 30 行，覆盖面足够（深色/浅色/auto），打包少 5MB，零外部依赖。
 
 THEME_KEY = "RollingPlan/theme"  # QSettings key
 
-# pyqtdarktheme 支持的主题名
 THEME_OPTIONS = [
     ("dark", "Dark · 深色扁平"),
     ("light", "Light · 清爽亮色"),
@@ -1385,10 +1387,315 @@ THEME_OPTIONS = [
 ]
 
 
+# ============== QSS 主题表 ==============
+# 冷调极简：深色用 #1e1e1e 主背景 + #2d2d30 控件背景 + #cccccc 文字
+#          浅色用 #f5f5f5 主背景 + #ffffff 控件背景 + #222222 文字
+# 高亮色统一：主操作 #2196F3 (蓝) + 完成 #4CAF50 (绿) + 警告 #f44336 (红)
+
+DARK_QSS = """
+QWidget {
+    background-color: #1e1e1e;
+    color: #cccccc;
+    font-family: "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif;
+    font-size: 11pt;
+}
+QMainWindow, QDialog {
+    background-color: #1e1e1e;
+}
+QLabel {
+    background: transparent;
+    color: #cccccc;
+}
+QLineEdit, QListWidget, QComboBox, QSpinBox, QDateEdit, QTextEdit, QPlainTextEdit {
+    background-color: #2d2d30;
+    color: #e8e8e8;
+    border: 1px solid #3f3f46;
+    border-radius: 3px;
+    padding: 4px 6px;
+    selection-background-color: #1E88E5;
+    selection-color: white;
+}
+QLineEdit:focus, QListWidget:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid #1E88E5;
+}
+QListWidget::item {
+    padding: 4px 6px;
+}
+QListWidget::item:selected {
+    background-color: #1E88E5;
+    color: white;
+}
+QPushButton {
+    background-color: #3f3f46;
+    color: #e8e8e8;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 6px 14px;
+}
+QPushButton:hover { background-color: #505057; }
+QPushButton:pressed { background-color: #2d2d30; }
+QPushButton:disabled { color: #6a6a6a; background-color: #2a2a2a; border-color: #3a3a3a; }
+QToolButton {
+    background: transparent;
+    color: #cccccc;
+    border: none;
+    padding: 6px 10px;
+    text-align: left;
+}
+QToolButton:hover { color: white; }
+QToolButton:checked { color: #1E88E5; font-weight: bold; }
+QTabWidget::pane {
+    border: 1px solid #3f3f46;
+    background-color: #1e1e1e;
+    top: -1px;
+}
+QTabBar::tab {
+    background-color: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3f3f46;
+    border-bottom: none;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    padding: 6px 14px;
+    margin-right: 1px;
+}
+QTabBar::tab:selected {
+    color: white;
+    background-color: #1E88E5;
+    font-weight: bold;
+    border-color: #1E88E5;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #3a3a3a;
+    color: white;
+}
+QGroupBox {
+    background-color: #252526;
+    border: 1px solid #3f3f46;
+    border-radius: 4px;
+    margin-top: 14px;
+    padding: 8px;
+    font-weight: bold;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    color: #1E88E5;
+}
+QScrollBar:vertical {
+    background: #1e1e1e;
+    width: 12px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: #555;
+    border-radius: 4px;
+    min-height: 20px;
+}
+QScrollBar::handle:vertical:hover { background: #777; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar:horizontal {
+    background: #1e1e1e;
+    height: 12px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background: #555;
+    border-radius: 4px;
+    min-width: 20px;
+}
+QScrollBar::handle:horizontal:hover { background: #777; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QMenu {
+    background-color: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3f3f46;
+}
+QMenu::item:selected {
+    background-color: #1E88E5;
+    color: white;
+}
+QMenuBar {
+    background-color: #1e1e1e;
+    color: #cccccc;
+}
+QMenuBar::item:selected {
+    background-color: #3f3f46;
+}
+QMessageBox, QInputDialog {
+    background-color: #2d2d30;
+    color: #cccccc;
+}
+QProgressBar {
+    background-color: #2d2d30;
+    border: 1px solid #3f3f46;
+    border-radius: 3px;
+    text-align: center;
+    color: white;
+}
+QProgressBar::chunk {
+    background-color: #1E88E5;
+    border-radius: 3px;
+}
+QCheckBox { color: #cccccc; background: transparent; }
+QRadioButton { color: #cccccc; background: transparent; }
+QStatusBar { background-color: #1e1e1e; color: #888; }
+"""
+
+LIGHT_QSS = """
+QWidget {
+    background-color: #f5f5f5;
+    color: #222222;
+    font-family: "Microsoft YaHei", "Segoe UI", "Helvetica Neue", sans-serif;
+    font-size: 11pt;
+}
+QMainWindow, QDialog {
+    background-color: #f5f5f5;
+}
+QLabel {
+    background: transparent;
+    color: #222222;
+}
+QLineEdit, QListWidget, QComboBox, QSpinBox, QDateEdit, QTextEdit, QPlainTextEdit {
+    background-color: #ffffff;
+    color: #222222;
+    border: 1px solid #c0c0c0;
+    border-radius: 3px;
+    padding: 4px 6px;
+    selection-background-color: #1976D2;
+    selection-color: white;
+}
+QLineEdit:focus, QListWidget:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid #1976D2;
+}
+QListWidget::item {
+    padding: 4px 6px;
+}
+QListWidget::item:selected {
+    background-color: #1976D2;
+    color: white;
+}
+QPushButton {
+    background-color: #e8e8e8;
+    color: #222222;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    padding: 6px 14px;
+}
+QPushButton:hover { background-color: #d8d8d8; }
+QPushButton:pressed { background-color: #c8c8c8; }
+QPushButton:disabled { color: #999; background-color: #f0f0f0; border-color: #d0d0d0; }
+QToolButton {
+    background: transparent;
+    color: #222222;
+    border: none;
+    padding: 6px 10px;
+    text-align: left;
+}
+QToolButton:hover { color: #1976D2; }
+QToolButton:checked { color: #1976D2; font-weight: bold; }
+QTabWidget::pane {
+    border: 1px solid #c0c0c0;
+    background-color: #ffffff;
+    top: -1px;
+}
+QTabBar::tab {
+    background-color: #e8e8e8;
+    color: #222222;
+    border: 1px solid #c0c0c0;
+    border-bottom: none;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    padding: 6px 14px;
+    margin-right: 1px;
+}
+QTabBar::tab:selected {
+    color: white;
+    background-color: #1976D2;
+    font-weight: bold;
+    border-color: #1976D2;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #f0f0f0;
+}
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #c0c0c0;
+    border-radius: 4px;
+    margin-top: 14px;
+    padding: 8px;
+    font-weight: bold;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    color: #1976D2;
+}
+QScrollBar:vertical {
+    background: #f5f5f5;
+    width: 12px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: #c0c0c0;
+    border-radius: 4px;
+    min-height: 20px;
+}
+QScrollBar::handle:vertical:hover { background: #999; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar:horizontal {
+    background: #f5f5f5;
+    height: 12px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background: #c0c0c0;
+    border-radius: 4px;
+    min-width: 20px;
+}
+QScrollBar::handle:horizontal:hover { background: #999; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QMenu {
+    background-color: #ffffff;
+    color: #222222;
+    border: 1px solid #c0c0c0;
+}
+QMenu::item:selected {
+    background-color: #1976D2;
+    color: white;
+}
+QMenuBar {
+    background-color: #f5f5f5;
+    color: #222222;
+}
+QMenuBar::item:selected {
+    background-color: #e0e0e0;
+}
+QMessageBox, QInputDialog {
+    background-color: #ffffff;
+    color: #222222;
+}
+QProgressBar {
+    background-color: #e8e8e8;
+    border: 1px solid #c0c0c0;
+    border-radius: 3px;
+    text-align: center;
+    color: #222222;
+}
+QProgressBar::chunk {
+    background-color: #1976D2;
+    border-radius: 3px;
+}
+QCheckBox { color: #222222; background: transparent; }
+QRadioButton { color: #222222; background: transparent; }
+QStatusBar { background-color: #f5f5f5; color: #666; }
+"""
+
+
 def _setup_logger():
-    """建一个滚动日志文件 (~/.hermes_cache/rollingplan_debug.log)。
-    exe 启动/主题切换/exceptions 都写这里，方便排查。
-    """
+    """建一个滚动日志文件 (~/.hermes_cache/rollingplan_debug.log)。"""
     log_dir = os.path.expanduser("~/.hermes_cache")
     try:
         os.makedirs(log_dir, exist_ok=True)
@@ -1416,66 +1723,49 @@ def _log(msg):
             _LOG.debug(msg)
         except Exception:
             pass
-    # stderr 在 PyInstaller --windowed 下是 None，必须 try/except
     try:
         sys.stderr.write(f"[RollingPlan] {msg}\n")
     except Exception:
         pass
 
 
+def _detect_system_theme():
+    """检测系统是否是深色模式。Windows 走注册表，macOS 走 defaults，其他返回 False。"""
+    try:
+        if sys.platform == "win32":
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                  r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return value == 0
+        elif sys.platform == "darwin":
+            import subprocess
+            result = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=2
+            )
+            return result.stdout.strip().lower() == "dark"
+    except Exception as e:
+        _log(f"detect system theme failed: {e}")
+    return False
+
+
 def apply_theme(app: QApplication, theme_name: str):
-    """应用主题。会同时修复 Tab 文字对比度问题。
+    """应用主题（自写 QSS，无外部依赖）。
     theme_name: "dark" / "light" / "auto"
     """
     _log(f"apply_theme({theme_name}) called")
-    try:
-        import qdarktheme
-        _log(f"qdarktheme loaded from: {qdarktheme.__file__}")
-    except ImportError as e:
-        _log(f"qdarktheme 未安装：{e}")
-        return
 
-    try:
-        if theme_name == "auto":
-            qdarktheme.setup_theme("auto")
-        else:
-            qdarktheme.setup_theme(theme_name)
-        _log(f"qdarktheme.setup_theme('{theme_name}') OK, stylesheet len={len(app.styleSheet())}")
-    except Exception as e:
-        _log(f"qdarktheme.setup_theme('{theme_name}') 失败：{e}")
-        return
+    if theme_name == "auto":
+        is_dark = _detect_system_theme()
+        actual = "dark" if is_dark else "light"
+        _log(f"auto -> {actual} (system dark={is_dark})")
+    else:
+        actual = theme_name
 
-    # Tab 文字对比度修复
-    if theme_name == "dark":
-        tab_color = "#E0E0E0"
-        tab_selected_bg = "#1E88E5"
-        tab_selected_fg = "#FFFFFF"
-    elif theme_name == "light":
-        tab_color = "#424242"
-        tab_selected_bg = "#1976D2"
-        tab_selected_fg = "#FFFFFF"
-    else:  # auto
-        tab_color = "palette(bright-text)"
-        tab_selected_bg = "palette(highlight)"
-        tab_selected_fg = "palette(highlighted-text)"
-
-    tab_fix = f"""
-    QTabBar::tab {{
-        color: {tab_color};
-        padding: 6px 14px;
-    }}
-    QTabBar::tab:selected {{
-        color: {tab_selected_fg};
-        background: {tab_selected_bg};
-        font-weight: bold;
-    }}
-    QTabBar::tab:hover:!selected {{
-        color: palette(text);
-    }}
-    """
-    current = app.styleSheet()
-    app.setStyleSheet(current + tab_fix)
-    _log(f"主题已应用：{theme_name}，最终 stylesheet len={len(app.styleSheet())}")
+    qss = DARK_QSS if actual == "dark" else LIGHT_QSS
+    app.setStyleSheet(qss)
+    _log(f"theme applied: {actual}, qss len={len(qss)}")
 
 
 # ============== 入口 ==============

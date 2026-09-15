@@ -21,9 +21,9 @@ echo [2/5] Working dir: %CD%
 
 REM 3. Install dependencies
 echo.
-echo [3/5] Installing dependencies (PyQt5 + pyinstaller + pyqtdarktheme)...
+echo [3/5] Installing dependencies (PyQt5 + pyinstaller)...
 python -m pip install --upgrade pip
-python -m pip install PyQt5 pyinstaller pyqtdarktheme
+python -m pip install PyQt5 pyinstaller
 if errorlevel 1 (
     echo [ERROR] pip install failed.
     pause
@@ -40,7 +40,7 @@ if exist RollingPlan.spec del RollingPlan.spec
 REM 5. Build
 echo.
 echo [5/5] Building exe (this takes 1-2 minutes)...
-python -m PyInstaller --onefile --windowed --name RollingPlan --distpath dist --workpath build --specpath . --collect-all qdarktheme rollingplan.py
+python -m PyInstaller --onefile --windowed --name RollingPlan --distpath dist --workpath build --specpath . rollingplan.py
 if errorlevel 1 (
     echo [ERROR] pyinstaller failed.
     pause
