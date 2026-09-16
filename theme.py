@@ -342,6 +342,7 @@ QWidget#rpSlotCard:hover {
 QWidget#rpExtraCard:hover {
     background-color: $surface_hover;
 }
+QWidget#rp-note-detail { background: transparent; }
 QWidget#rpExtraCard {
     background-color: $success_soft;
     border: 1px solid $border;

@@ -12,7 +12,7 @@ v0.22 新增按天分组：archived 是按完成顺序的 list,daily_boundaries 
 - PlanScheduler
 """
 from PyQt5.QtCore import Qt, QDateTime
-from PyQt5.QtGui import QFont, QBrush, QPalette
+from PyQt5.QtGui import QFont, QBrush, QColor
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QListWidget, QListWidgetItem,
@@ -417,6 +417,11 @@ class PlanCalendarView(QWidget):
             return
         QMessageBox.information(self, "导出归档", f"已导出到：\n{path}")
 
+    def _header_color(self):
+        """v0.30：分组标题色 = token text_dim（旧 palette 方案不随 QSS 主题变）。"""
+        from theme import current_tokens
+        return current_tokens()["text_dim"]
+
     def _day_sections(self, p):
         """v0.22：把 archived 按天切成多段（时间顺序：第 1 天 → 当前天）。
 
@@ -550,8 +555,7 @@ class PlanCalendarView(QWidget):
         )
         self.estimate_label.setText(summarize_all_text(parents))
 
-        header_color = self.palette().color(QPalette.WindowText)
-        header_color.setAlpha(150)
+        header_color = QColor(self._header_color())
         self.archive_list.clear()
         for p in parents:
             head = QListWidgetItem(
@@ -611,8 +615,7 @@ class PlanCalendarView(QWidget):
             self.archive_list.addItem(placeholder)
         else:
             base = getattr(p, "archived_base", 0) or 0
-            header_color = self.palette().color(QPalette.WindowText)
-            header_color.setAlpha(150)          # 跟着浅色 / 深色主题走，不用写死的灰
+            header_color = QColor(self._header_color())   # token text_dim，随主题走
             for row in self._archive_rows(p):
                 if row["kind"] == "header":
                     item = QListWidgetItem(row["text"])
@@ -627,8 +630,10 @@ class PlanCalendarView(QWidget):
                     item.setData(Qt.UserRole, "plan")
                     item.setData(Qt.UserRole + 1, row["idx"])
                     if row["idx"] is not None and row["idx"] >= base:
-                        # 今天完成的（archived[base:]）用深绿标
-                        item.setForeground(Qt.darkGreen)
+                        # 今天完成的（archived[base:]）用主题 success 色
+                        # （v0.30：原 Qt.darkGreen 在深色主题下 ≈1.9:1 看不清）
+                        from theme import current_tokens
+                        item.setForeground(QColor(current_tokens()["success"]))
                 self.archive_list.addItem(item)
 
         # 今天完成
