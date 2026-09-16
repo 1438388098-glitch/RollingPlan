@@ -550,6 +550,7 @@ class MainWindow(QMainWindow):
         if _screen is not None:
             _avail = _screen.availableGeometry()
             self.resize(min(950, _avail.width() - 40), min(850, _avail.height() - 40))
+            self.move(_avail.center() - self.rect().center())   # v0.30 R28：启动居中
         else:
             self.resize(950, 850)
         self.setMinimumSize(720, 520)
@@ -575,6 +576,7 @@ class MainWindow(QMainWindow):
             self._sync_theme_combos)
         # 第三页激活时也要能刷新（用户在第三页时执行页可能完成了一条）
         self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._refresh_window_title()
 
         # v0.30 R12（审计 P1-11）：Ctrl+1/2/3 直接切页 —— QShortcut 挂在窗口上，
         # 不依赖焦点链，任何控件拿到焦点都好使
@@ -591,6 +593,13 @@ class MainWindow(QMainWindow):
         target.setCurrentIndex(idx)
         target.blockSignals(False)
 
+    def _refresh_window_title(self):
+        """v0.30 R28：标题带当前分类名，多分类时任务栏可分辨。"""
+        try:
+            self.setWindowTitle("日常计划管理 — 【{}】".format(self.data.current_parent.name))
+        except (IndexError, AttributeError):
+            self.setWindowTitle("日常计划管理")
+
     def _on_tab_changed(self, idx):
         """切页时刷新目标页 —— 用户可能在前一页改了数据。
 
@@ -602,6 +611,7 @@ class MainWindow(QMainWindow):
             self.calendar_view.refresh()
         elif w is self.executor:
             self.executor.refresh()
+        self._refresh_window_title()
         # v0.30 R16：切页不再挂整页透明度特效 —— 每帧全页重绘是切页卡顿感来源
         # （视觉复查 Top#2）；干脆的瞬时切换比半吊子淡入更「流畅」
 
