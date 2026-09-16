@@ -19,14 +19,14 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QPushButton, QWidget
 app = QApplication(sys.argv)
 
 from rollingplan import (
-    PlanEditor, PlanExecutor, PlanData,
+    PlanEditor, PlanExecutor, PlanData, PlanScheduler,
     THEME_OPTIONS, THEME_KEY,
 )
-from PyQt5.QtCore import QDate
+from PyQt5.QtCore import QDate, Qt
 
 
 PASS_COUNT = 0
@@ -300,6 +300,67 @@ def test_executor_today_done_goes_to_tooltip_v026():
     assert_true("A" in ex.status_label.toolTip(), f"tooltip 含已完成内容：{ex.status_label.toolTip()!r}")
 
 
+# ============== v0.26b 每格只留一个按钮 ==============
+
+
+def _visible_buttons(w):
+    from PyQt5.QtWidgets import QPushButton
+    return [b for b in w.findChildren(QPushButton) if b.isVisible()]
+
+
+def test_slot_row_single_button_v026b():
+    print("\n=== test_slot_row_single_button_v026b ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    ex.refresh()
+    app.processEvents()
+    trays = ex.findChildren(QWidget)
+    rows = [t for t in trays
+            if t.contextMenuPolicy() == Qt.CustomContextMenu and t.findChildren(QPushButton)]
+    assert_true(len(rows) >= 1, f"找到格子行容器（{len(rows)} 个）")
+    for i, row in enumerate(rows):
+        vis = _visible_buttons(row)
+        assert_eq(len(vis), 1, f"第 {i+1} 行常驻按钮只有 1 个")
+        assert_eq(vis[0].text(), "✓ 完成并滚动", f"第 {i+1} 行留的是「✓ 完成并滚动」")
+
+
+def test_slot_hidden_buttons_still_exist_v026b():
+    print("\n=== test_slot_hidden_buttons_still_exist_v026b ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    ex.refresh()
+    app.processEvents()
+    # 次要按钮只是藏起来，不是删掉：还能点、还能生效（旧测试也靠这个）
+    only = _find_btn(ex, "仅完成")
+    assert_true(only is not None, "「仅完成」按钮还在（隐藏）")
+    assert_true(not only.isVisible(), "「仅完成」默认不显示")
+    assert_true(_find_btn(ex, "固定计划") is not None, "「固定计划」按钮还在")
+    assert_true(_find_btn(ex, "拦截滚动") is not None, "「拦截滚动」按钮还在")
+    # 点了照样生效：早1 的 A 变成「已完成（不滚动）」
+    only.click()
+    app.processEvents()
+    assert_true(PlanScheduler(ex.data.current_parent).today_state()["row_done"][0],
+                "点隐藏的「仅完成」→ 该格标记完成")
+
+
+def test_slot_context_menu_actions_v026b():
+    print("\n=== test_slot_context_menu_actions_v026b ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    ex.refresh()
+    app.processEvents()
+    menu = ex._build_slot_menu(ex, 0, False, False, False)
+    texts = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert_eq(texts, ["仅完成（不滚动）", "固定计划", "拦截滚动", "✓ 完成并滚动"],
+              "右键菜单里能找回全部次要操作")
+    # 已标记完成的那一格：仅完成 置灰，固定/拦截 文案变「取消…」
+    menu2 = ex._build_slot_menu(ex, 0, True, True, True)
+    texts2 = [a.text() for a in menu2.actions() if not a.isSeparator()]
+    assert_eq(texts2, ["仅完成（不滚动）", "取消固定", "取消拦截", "✓ 完成并滚动"],
+              "已固定/拦截时菜单文案改成「取消…」")
+    assert_eq(menu2.actions()[0].isEnabled(), False, "已完成的格子「仅完成」置灰")
+
+
 def main():
     test_editor_three_toggles_exist()
     test_editor_toggles_initially_collapsed()
@@ -314,6 +375,9 @@ def main():
     test_executor_status_line_merged_v026()
     test_executor_more_reveals_minor_entries_v026()
     test_executor_today_done_goes_to_tooltip_v026()
+    test_slot_row_single_button_v026b()
+    test_slot_hidden_buttons_still_exist_v026b()
+    test_slot_context_menu_actions_v026b()
     print(f"\n=== ALL TESTS PASSED ({PASS_COUNT} assertions) ===")
 
 

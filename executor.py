@@ -15,7 +15,7 @@ RollingPlan v0.21：执行计划页 + 额外安排对话框(从 rollingplan.py �
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QMessageBox, QComboBox, QToolButton,
-    QDialog, QScrollArea, QInputDialog, QGroupBox, QTextEdit,
+    QDialog, QScrollArea, QInputDialog, QGroupBox, QTextEdit, QMenu,
 )
 from PyQt5.QtCore import Qt, QSettings
 from PyQt5.QtGui import QFont
@@ -362,7 +362,7 @@ class PlanExecutor(QWidget):
         row.addStretch(1)
 
         if show_complete and slot_idx is not None:
-            # 固定计划 / 拦截滚动（小按钮，可切换）
+            # v0.26b：固定计划 / 拦截滚动 不再常驻 —— 收进右键菜单（widget 留着，只是不显示）
             for text, checked, handler in (
                 ("固定计划", bool(fixed), self.on_toggle_fixed),
                 ("拦截滚动", bool(blocked), self.on_toggle_blocked),
@@ -381,9 +381,10 @@ class PlanExecutor(QWidget):
                 toggle_btn.clicked.connect(
                     lambda checked=False, idx=slot_idx, h=handler: h(idx))
                 row.addWidget(toggle_btn)
+                toggle_btn.setVisible(False)
 
         if show_complete and plan and slot_idx is not None:
-            # 仅完成：标记完成，不滚动
+            # v0.26b：仅完成 也收进右键菜单
             only_btn = QPushButton("仅完成")
             only_btn.setFont(QFont("Microsoft YaHei", 11))
             only_btn.setStyleSheet(
@@ -396,8 +397,9 @@ class PlanExecutor(QWidget):
                 only_btn.clicked.connect(
                     lambda checked=False, idx=slot_idx: self.on_complete_only(idx))
             row.addWidget(only_btn)
+            only_btn.setVisible(False)
 
-            # 完成并滚动：归档 + 后面的上滚一格
+            # 完成并滚动：这一格唯一常驻的按钮（归档 + 后面的上滚一格）
             scroll_btn = QPushButton("✓ 完成并滚动")
             scroll_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
             scroll_btn.setStyleSheet(
@@ -407,6 +409,12 @@ class PlanExecutor(QWidget):
                 "QPushButton:pressed { background-color: #388E3C; }"
             )
             scroll_btn.setCursor(Qt.PointingHandCursor)
+            # v0.26b：告诉用户「别的操作在右键里」，避免藏得太死
+            extras_hint = []
+            if not done:
+                extras_hint.append("仅完成")
+            extras_hint += ["固定计划", "拦截滚动"]
+            scroll_btn.setToolTip("这一格右键还能：" + " / ".join(extras_hint))
             scroll_btn.clicked.connect(
                 lambda checked=False, idx=slot_idx: self.on_complete_slot(idx))
             row.addWidget(scroll_btn)
@@ -418,6 +426,38 @@ class PlanExecutor(QWidget):
         cl.setContentsMargins(6, 2, 6, 2)
         cl.addLayout(row)
         parent_layout.addWidget(container)
+
+        # v0.26b：这一格的次要操作走右键菜单（右键哪一行都行）
+        if show_complete and slot_idx is not None:
+            container.setContextMenuPolicy(Qt.CustomContextMenu)
+            container.customContextMenuRequested.connect(
+                lambda pos, c=container, idx=slot_idx, d=bool(done),
+                       f=bool(fixed), b=bool(blocked):
+                self._on_slot_context_menu(c, pos, idx, d, f, b))
+
+    def _build_slot_menu(self, parent, slot_idx, done, fixed, blocked):
+        """v0.26b：一格的次要操作菜单（拆出来是为了能单测，不弹窗也能验）"""
+        menu = QMenu(parent)
+        act = menu.addAction("仅完成（不滚动）")
+        act.setEnabled(not done)
+        if not done:
+            act.triggered.connect(
+                lambda checked=False, idx=slot_idx: self.on_complete_only(idx))
+        act = menu.addAction("取消固定" if fixed else "固定计划")
+        act.triggered.connect(
+            lambda checked=False, idx=slot_idx: self.on_toggle_fixed(idx))
+        act = menu.addAction("取消拦截" if blocked else "拦截滚动")
+        act.triggered.connect(
+            lambda checked=False, idx=slot_idx: self.on_toggle_blocked(idx))
+        menu.addSeparator()
+        act = menu.addAction("✓ 完成并滚动")
+        act.triggered.connect(
+            lambda checked=False, idx=slot_idx: self.on_complete_slot(idx))
+        return menu
+
+    def _on_slot_context_menu(self, container, pos, slot_idx, done, fixed, blocked):
+        menu = self._build_slot_menu(container, slot_idx, done, fixed, blocked)
+        menu.exec_(container.mapToGlobal(pos))
 
     def refresh(self):
         self._clear_layout(self.day_layout)
