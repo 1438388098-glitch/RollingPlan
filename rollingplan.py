@@ -271,6 +271,12 @@ class ParentPlan:
             return ""
         snap = self._history[-1]
         cur = self._snapshot_dict()
+        # 切天（v0.22b）：天数变了优先报这个 —— 切天还会清额外轮 / 每格状态,
+        # 不先判的话会被后面的「退回额外轮」抢走(额外轮少了几条)。
+        day_now = cur["current_day"] if isinstance(cur["current_day"], int) else 0
+        day_then = snap["current_day"] if isinstance(snap["current_day"], int) else 0
+        if day_now != day_then:
+            return "进入下一天" if day_now > day_then else "退回前一天"
         # 简单判断：归档条数变了 = 完成;额外轮条数变了 = 加/退
         n_arc_now = len(cur["archived"])
         n_arc_then = len(snap["archived"])

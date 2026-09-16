@@ -302,5 +302,117 @@ class TestIsolatedPerParent(unittest.TestCase):
         self.assertEqual(pa.can_redo(), True)
 
 
+class TestDaySwitchUndo(unittest.TestCase):
+    """v0.22b：切天（「今天完成」）也能撤销。
+
+    切天会清掉每格状态 / 额外轮 / 归档分界,以前 on_next_day 直接改状态、不进 history,
+    误点之后只能手动改回来。现在 on_next_day 会 push_history() → Ctrl+Z 退回前一天,
+    快照里的 current_day / daily_boundaries / archived_base / consumed / 每格状态整块回滚。
+    """
+
+    def _win(self, plans=None):
+        from rollingplan import MainWindow
+        win = MainWindow()
+        p = ParentPlan("切天测试")
+        p.plans = list(plans or ["1", "2", "3", "4", "5", "6"])
+        p.time_slots = [{"name": "早", "count": 3}]
+        p.normalize()
+        win.data.parents = [p]
+        win.data.current_parent_idx = 0
+        win.executor.refresh()
+        return win, p
+
+    def _next_day(self, win):
+        """点「今天完成」——把确认弹窗挡掉。"""
+        from PyQt5.QtWidgets import QMessageBox
+        orig = QMessageBox.question
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        try:
+            win.executor.on_next_day()
+        finally:
+            QMessageBox.question = orig
+
+    def _cancel_next_day(self, win):
+        """弹窗点「取消」→ 不能进栈、状态一点不动。"""
+        from PyQt5.QtWidgets import QMessageBox
+        orig = QMessageBox.question
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+        try:
+            win.executor.on_next_day()
+        finally:
+            QMessageBox.question = orig
+
+    def test_next_day_pushes_history(self):
+        win, p = self._win()
+        self.assertFalse(p.can_undo())
+        win.executor.on_complete_slot(0)          # 今天完成 1 条
+        self._next_day(win)
+        self.assertEqual(p.current_day, 1)
+        self.assertTrue(p.can_undo())
+        self.assertIn("进入下一天", p.history_top_label())
+
+    def test_cancelled_next_day_does_not_push(self):
+        win, p = self._win()
+        win.executor.on_complete_slot(0)
+        depth_before = len(p._history)
+        self._cancel_next_day(win)
+        self.assertEqual(p.current_day, 0)
+        self.assertEqual(len(p._history), depth_before)
+
+    def test_undo_restores_previous_day(self):
+        win, p = self._win()
+        # 切天前：今天完成 1 条 + 一格固定 + 一条额外安排（切天都会清掉）
+        win.executor.on_complete_slot(0)
+        win.executor.on_toggle_fixed(1)
+        p.borrowed_slots.append(["早", "9", 0, 0])
+        win.executor.on_complete_slot(0)
+        archived_before = list(p.archived)
+        self._next_day(win)
+        # 切天之后：状态归零
+        self.assertEqual(p.current_day, 1)
+        self.assertEqual(p.daily_boundaries, [len(archived_before)])
+        self.assertEqual(p.borrowed_slots, [])
+        self.assertEqual(p.slot_fixed, [None, None, None])
+        # Ctrl+Z（新栈的通用撤销）
+        win.executor.on_undo()
+        self.assertEqual(p.current_day, 0)
+        self.assertEqual(p.daily_boundaries, [])
+        self.assertEqual(p.archived_base, 0)
+        self.assertEqual(p.archived, archived_before)
+        self.assertEqual(len(p.borrowed_slots), 1)         # 额外安排回来了
+        self.assertTrue(any(p.slot_fixed))                 # 「固定」也回来了
+
+    def test_redo_applies_day_switch_again(self):
+        win, p = self._win()
+        win.executor.on_complete_slot(0)
+        self._next_day(win)
+        boundary = list(p.daily_boundaries)
+        self.assertTrue(win.executor.scheduler.undo())
+        self.assertEqual(p.current_day, 0)
+        self.assertTrue(win.executor.scheduler.redo())
+        self.assertEqual(p.current_day, 1)
+        self.assertEqual(p.daily_boundaries, boundary)
+        self.assertEqual(p.borrowed_slots, [])
+
+    def test_day_switch_label_model_level(self):
+        p = _make_parent()
+        p.push_history()
+        p.current_day += 1
+        p.daily_boundaries.append(len(p.archived))
+        p.normalize()
+        self.assertEqual(p.history_top_label(), "进入下一天")
+
+    def test_label_prefers_day_over_extras(self):
+        """切天同时清空额外轮 —— 标签不能被「退回额外轮」抢走。"""
+        p = _make_parent()
+        p.borrowed_slots.append(["早", "B", 0, 0])
+        p.push_history()
+        p.current_day += 1
+        p.borrowed_slots = []
+        p.daily_boundaries.append(len(p.archived))
+        p.normalize()
+        self.assertEqual(p.history_top_label(), "进入下一天")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

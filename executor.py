@@ -613,6 +613,10 @@ class PlanExecutor(QWidget):
             if reply != QMessageBox.Yes:
                 return
 
+        # v0.22b：切天也进撤销栈 —— 切天会清掉每格状态 / 额外轮 / 归档分界,误点之后
+        # 至少要能 Ctrl+Z 退回前一天（快照里有 current_day / daily_boundaries / archived_base /
+        # consumed / 每格状态,整块一起回滚）
+        p.push_history()
         p.current_day += 1
         p.consumed += scheduler.today_state()["queue_used"]  # 今天的队列走到哪了
         # v0.22：归档按天分组 —— 用「今天完成后 archived 的长度」当作这一天与下一天的分界
