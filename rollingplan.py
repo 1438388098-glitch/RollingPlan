@@ -28,6 +28,7 @@ from PyQt5.QtGui import QFont
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
 from theme import DARK_QSS, LIGHT_QSS  # 向后兼容:test_theme_v05.py 直接 import 这两个常量
 import animations
+import theme
 
 
 # ============== 数据模型 ==============
@@ -517,9 +518,9 @@ class MainWindow(QMainWindow):
         w = self.tabs.widget(idx)
         if w is self.calendar_view:
             self.calendar_view.refresh()
-        # v0.29：切页淡入（idx=-1 是初始状态，不动；offscreen 下自动禁用）
+        # v0.30 R7：切页快淡（fast 档，短到干脆利落；offscreen 下自动禁用）
         if idx >= 0:
-            animations.fade_in(w, 170)
+            animations.fade_in(w, theme.MOTION["fast"])
 
     def _replace_executor(self):
         """换一个新 executor 并保证它始终占据 index 1（v0.30 修 P0）。
@@ -552,6 +553,11 @@ class MainWindow(QMainWindow):
 
     def show_editor(self):
         self.tabs.setCurrentIndex(0)
+
+    def showEvent(self, event):
+        """v0.30 R7：主窗口启动出场淡入（只做一次；offscreen 自动禁用）。"""
+        super().showEvent(event)
+        animations.launch_fade(self)
 
     def keyPressEvent(self, event):
         """只在「执行计划」页激活时，把快捷键转给 executor。

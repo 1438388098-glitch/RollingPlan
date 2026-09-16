@@ -324,6 +324,13 @@ QWidget#rpSlotCard {
     border-left: 3px solid $accent;
     border-radius: 8px;
 }
+QWidget#rpSlotCard:hover {
+    background-color: $surface_hover;
+    border-color: $accent;
+}
+QWidget#rpExtraCard:hover {
+    background-color: $surface_hover;
+}
 QWidget#rpExtraCard {
     background-color: $success_soft;
     border: 1px solid $border;

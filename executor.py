@@ -673,7 +673,7 @@ class PlanExecutor(QWidget):
         if self.scheduler.complete_today_slot(slot_idx):
             self.data.save()
             self.refresh()
-            animations.fade_in(self.day_container, 150)   # v0.29：滚动后整块轻淡入一下
+            animations.fade_in(self.day_container, 150)   # 完成滚动后的轻反馈
 
     def on_next_day(self):
         p = self.data.current_parent
@@ -717,7 +717,7 @@ class PlanExecutor(QWidget):
         p.normalize()
         self.data.save()
         self.refresh()
-        animations.fade_in(self.day_container, 170)   # v0.29：新的一天，内容轻淡入
+        animations.fade_in(self.day_container)        # 新的一天，内容轻淡入
 
     def on_switch_parent(self):
         """切换分类"""
@@ -733,7 +733,7 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.scheduler = PlanScheduler(self.data.current_parent)
             self.refresh()
-            animations.fade_in(self.day_container, 170)   # v0.29：换了分类，内容轻淡入
+            animations.fade_in(self.day_container)        # 换了分类，内容轻淡入
 
 
 # ============== 额外安排 列表（v0.12） ==============
@@ -786,9 +786,9 @@ class ExtraArrangementsDialog(QDialog):
         self.rebuild()
 
     def showEvent(self, event):
-        """v0.29：对话框弹出时轻淡入（offscreen 下自动禁用）"""
+        """v0.30 R7：对话框出场走窗口级 windowOpacity（比整页特效顺滑）。"""
         super().showEvent(event)
-        animations.fade_in(self, 150)
+        animations.pop_window(self)
 
     # ---------- 列表渲染 ----------
 
