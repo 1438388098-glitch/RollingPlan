@@ -247,12 +247,12 @@ class PlanCalendarView(QWidget):
     def _init_ui(self):
         layout = QVBoxLayout()
         layout.setSpacing(12)
-        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setContentsMargins(24, 20, 24, 20)
 
         # ============ 顶部：分类切换 + 标题 ============
         top_row = QHBoxLayout()
         title = QLabel("📊 归档总览")
-        title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
+        title.setObjectName("rpTitle")
         top_row.addWidget(title)
 
         top_row.addStretch()
@@ -299,12 +299,12 @@ class PlanCalendarView(QWidget):
         progress_group = QGroupBox("📈 进度")
         progress_inner = QVBoxLayout()
         self.progress_label = QLabel()
-        self.progress_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        self.progress_label.setObjectName("rpH2")
         self.progress_label.setAlignment(Qt.AlignCenter)
         progress_inner.addWidget(self.progress_label)
         # v0.23：按「每天 N 格」估算还要几天
         self.estimate_label = QLabel()
-        self.estimate_label.setFont(QFont("Microsoft YaHei", 11))
+        self.estimate_label.setObjectName("rpDim")
         self.estimate_label.setAlignment(Qt.AlignCenter)
         self.estimate_label.setWordWrap(True)
         progress_inner.addWidget(self.estimate_label)
@@ -326,7 +326,6 @@ class PlanCalendarView(QWidget):
         self.today_group = QGroupBox("✅ 今天完成")
         today_inner = QVBoxLayout()
         self.today_label = QLabel()
-        self.today_label.setFont(QFont("Microsoft YaHei", 13))
         self.today_label.setWordWrap(True)
         today_inner.addWidget(self.today_label)
         self.today_group.setLayout(today_inner)
