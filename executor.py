@@ -536,8 +536,19 @@ class PlanExecutor(QWidget):
             self.undo_btn.setEnabled(False)
         self.redo_btn.setVisible(self.scheduler.p.can_redo())
         self.redo_btn.setEnabled(self.scheduler.p.can_redo())
-        self.add_next_btn.setEnabled(self.scheduler.can_borrow_next())
-        self.add_specific_btn.setEnabled(bool(self.scheduler.available_borrow_names()))
+        # v0.30 R30（审计 P1-13）：置灰必须说清原因
+        can_add = self.scheduler.can_borrow_next()
+        self.add_next_btn.setEnabled(can_add)
+        if can_add:
+            self.add_next_btn.setToolTip("从还没安排的队列里顺延一条  (Ctrl+Enter)")
+        else:
+            self.add_next_btn.setToolTip("队列里已经没有可加的计划了\n想加内容请回制定页（Ctrl+1）")
+        can_pick = bool(self.scheduler.available_pick_plans())
+        self.add_specific_btn.setEnabled(can_pick)
+        if can_pick:
+            self.add_specific_btn.setToolTip("从后面还没安排的计划里挑一条，加进今天的额外安排")
+        else:
+            self.add_specific_btn.setToolTip("没有可提前安排的计划了")
 
         self.refresh_calendar_preview()
 
