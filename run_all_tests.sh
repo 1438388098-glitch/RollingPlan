@@ -35,6 +35,7 @@ test_data_sanity_v30.py
 test_page_sync_v30.py
 test_data_safety_v30.py
 test_editor_smoke_v30.py
+test_crossday_v30.py
 "
 
 # ---- 挑解释器：环境变量 > 本目录 venv > 验收副本 venv > 系统 python ----
@@ -80,7 +81,7 @@ for f in $TEST_FILES; do
 done
 
 if [ "$fail" -eq 0 ]; then
-  echo "全部通过（17 个测试文件）"
+  echo "全部通过（18 个测试文件）"
 else
   echo "有测试失败 —— 别提交" >&2
 fi
