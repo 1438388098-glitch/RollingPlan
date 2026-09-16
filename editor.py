@@ -346,6 +346,7 @@ class PlanEditor(QWidget):
     def on_rename_parent(self):
         idx = self.parent_list.currentRow()
         if idx < 0:
+            QMessageBox.information(self, "提示", "请先在列表里选中一个分类")
             return
         new_name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=self.data.parents[idx].name)
         if ok and new_name.strip():
@@ -361,6 +362,7 @@ class PlanEditor(QWidget):
     def on_del_parent(self):
         idx = self.parent_list.currentRow()
         if idx < 0:
+            QMessageBox.information(self, "提示", "请先在列表里选中一个分类")
             return
         if len(self.data.parents) <= 1:
             QMessageBox.warning(self, "提示", "至少保留一个分类")
@@ -475,6 +477,7 @@ class PlanEditor(QWidget):
     def edit_plan(self):
         cur = self.plan_list.currentRow()
         if cur < 0:
+            QMessageBox.information(self, "提示", "请先在列表里选中一项")
             return
         new_text, ok = QInputDialog.getText(self, "编辑计划", "新内容:", text=self.data.current_parent.plans[cur])
         if ok and new_text.strip():
@@ -485,6 +488,7 @@ class PlanEditor(QWidget):
     def del_plan(self):
         cur = self.plan_list.currentRow()
         if cur < 0:
+            QMessageBox.information(self, "提示", "请先在列表里选中一项")
             return
         # v0.30（审计 P0-2）：删除不可撤销（撤销栈不覆盖编辑器），必须确认
         name = self.data.current_parent.plans[cur]
@@ -536,6 +540,7 @@ class PlanEditor(QWidget):
     def edit_slot(self):
         cur = self.slot_list.currentRow()
         if cur < 0:
+            QMessageBox.information(self, "提示", "请先在列表里选中一项")
             return
         if self.data.current_parent.borrowed_slots:
             QMessageBox.warning(
@@ -558,6 +563,7 @@ class PlanEditor(QWidget):
     def del_slot(self):
         cur = self.slot_list.currentRow()
         if cur < 0:
+            QMessageBox.information(self, "提示", "请先在列表里选中一项")
             return
         if self.data.current_parent.borrowed_slots:
             QMessageBox.warning(
