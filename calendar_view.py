@@ -1,16 +1,21 @@
 """
-RollingPlan 归档总览（v0.18 新增）
+RollingPlan 归档总览（v0.18 新增,v0.22 加按天分组）
 
 第三页「📊 归档总览」：看每个分类的进度 + 归档历史 + 今天完成的列表。
 
-依赖（rollingplan.py 里）:
-- PlanData, PlanScheduler
+v0.22 新增按天分组：archived 是按完成顺序的 list,daily_boundaries 是每个分界点
+「之前的所有 archived 属于第 N 天」。calendar_view 用这个把 archive_list 切成
+「📅 第 1 天（3 条） / 📅 第 2 天（5 条） / 📅 第 3 天（进行中，2 条）」三段。
+
+依赖(rollingplan.py 里):
+- PlanData, ParentPlan(用 daily_boundaries 字段)
+- PlanScheduler
 """
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QBrush, QPalette
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QListWidget, QListWidgetItem,
+    QLabel, QListWidget, QListWidgetItem,
     QComboBox, QGroupBox,
 )
 
@@ -18,13 +23,14 @@ from scheduler import PlanScheduler
 
 
 class PlanCalendarView(QWidget):
-    """归档总览页：每个分类的进度 + 归档历史 + 今天完成的。
+    """归档总览页：每个分类的进度 + 归档历史(按天分组) + 今天完成的。
 
     数据通过 scheduler 的已有 API 拿：
     - get_progress() → (已推进, 总)
     - total_done() → 累计完成条数
     - done_today() → 今天完成的
     - archived (按完成顺序的 list)
+    - daily_boundaries (ParentPlan 字段,v0.22 新增)
     - slot_notes (每格的归档备注)
     """
 
@@ -67,8 +73,8 @@ class PlanCalendarView(QWidget):
         progress_group.setLayout(progress_inner)
         layout.addWidget(progress_group)
 
-        # 归档历史（所有已完成归档，按完成顺序；最近的在最上面）
-        archive_group = QGroupBox("🗂 归档历史（按完成顺序，最近在上）")
+        # 归档历史（按天分组）
+        archive_group = QGroupBox("🗂 归档历史（按天分组，最近完成的在上）")
         archive_inner = QVBoxLayout()
         self.archive_list = QListWidget()
         self.archive_list.setFont(QFont("Microsoft YaHei", 12))
@@ -117,33 +123,97 @@ class PlanCalendarView(QWidget):
             self.scheduler = None
         self._refresh_view()
 
+    def _day_sections(self, p):
+        """v0.22：把 archived 按天切成多段（时间顺序：第 1 天 → 当前天）。
+
+        返回 [{"label": str, "start": int, "plans": [plan, ...], "current": bool}, ...]
+        - 前 N 段 = 已经切过去的天（daily_boundaries 决定每段有多长）
+        - 最后一段 = 当前天（rest = 最后一次切天之后归档的）
+        "start" 是该段第一条在 p.archived 里的下标（用来判断「是不是今天完成的」）。
+        """
+        archived = list(p.archived)
+        bounds = list(getattr(p, "daily_boundaries", []) or [])
+        current_day = p.current_day if isinstance(p.current_day, int) else 0
+
+        sections = []
+        start = 0
+        for day_i, b in enumerate(bounds, 1):
+            plans = archived[start:b]
+            sections.append({
+                "label": f"📅 第 {day_i} 天（{len(plans)} 条）",
+                "start": start,
+                "plans": plans,
+                "current": False,
+            })
+            start = b
+
+        # 剩下的属于当前天。老存档（v0.21 之前没有 daily_boundaries）里这段可能横跨好几天 → 标成区间
+        rest = archived[start:]
+        if len(bounds) < current_day:
+            label = f"📅 第 {len(bounds) + 1}–{current_day + 1} 天"
+        else:
+            label = f"📅 第 {current_day + 1} 天"
+        label += f"（进行中，{len(rest)} 条）" if rest else "（无归档）"
+        sections.append({
+            "label": label,
+            "start": start,
+            "plans": rest,
+            "current": True,
+        })
+        return sections
+
+    def _archive_rows(self, p):
+        """归档历史列表的行，显示顺序 = 最近的天在上、每天内部最近完成的在上。
+
+        返回 [(kind, text, archived_idx), ...]，kind ∈ {"header", "plan"}；
+        header 行的 archived_idx 是 None。
+        """
+        rows = []
+        for sec in reversed(self._day_sections(p)):
+            plans = sec["plans"]
+            if not plans:
+                continue
+            rows.append(("header", sec["label"], None))
+            for off in range(len(plans) - 1, -1, -1):
+                rows.append(("plan", plans[off], sec["start"] + off))
+        return rows
+
     def _refresh_view(self):
         """拉一遍 scheduler 数据填进控件。"""
         if self.scheduler is None:
-            self.progress_label.setText("(无分类)")
+            self.progress_label.setText("（无分类）")
             self.archive_list.clear()
-            self.today_label.setText("(无分类)")
+            self.today_label.setText("（无分类）")
             return
         p = self.scheduler.p
         done, total = self.scheduler.get_progress()
         self.progress_label.setText(f"已推进 {done} / 共 {total} 条（{pct(done, total)}）")
 
-        # 归档历史：archived 是按完成顺序的 list，最近 push 的在末尾
-        # 列表显示时倒过来 —— 最近的在最上面
+        # 归档历史：按天分组 + 倒序（最近的天在最上面）
         self.archive_list.clear()
-        archived = list(p.archived)
-        if not archived:
+        if not p.archived:
             placeholder = QListWidgetItem("（暂无归档）")
-            placeholder.setFlags(Qt.NoItemFlags)   # 不可选
+            placeholder.setData(Qt.UserRole, "placeholder")
+            placeholder.setFlags(Qt.NoItemFlags)
             self.archive_list.addItem(placeholder)
         else:
-            n = len(archived)
-            for i, plan in enumerate(reversed(archived)):
-                order = n - i   # 序号
-                item = QListWidgetItem(f"{order:>3}.  {plan}")
-                # 标出"今天完成"的那几条
-                if i < len(self.scheduler.done_today()):
-                    item.setForeground(Qt.darkGreen)
+            base = getattr(p, "archived_base", 0) or 0
+            header_color = self.palette().color(QPalette.WindowText)
+            header_color.setAlpha(150)          # 跟着浅色 / 深色主题走，不用写死的灰
+            for kind, text, idx in self._archive_rows(p):
+                if kind == "header":
+                    item = QListWidgetItem(text)
+                    item.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+                    item.setForeground(QBrush(header_color))
+                    item.setFlags(Qt.NoItemFlags)   # 分隔标题不可选
+                    item.setData(Qt.UserRole, "day_header")
+                else:
+                    item = QListWidgetItem(f"      {text}")
+                    item.setData(Qt.UserRole, "plan")
+                    item.setData(Qt.UserRole + 1, idx)
+                    if idx is not None and idx >= base:
+                        # 今天完成的（archived[base:]）用深绿标
+                        item.setForeground(Qt.darkGreen)
                 self.archive_list.addItem(item)
 
         # 今天完成
@@ -153,7 +223,7 @@ class PlanCalendarView(QWidget):
         else:
             self.today_label.setText("（今天还没完成任何计划）")
 
-        # 每格的归档备注汇总（额外信息：哪一格 / 哪个时段完成了什么）
+        # 每格的归档备注汇总
         notes = getattr(p, "slot_notes", None) or []
         if any(n for n in notes):
             self.today_label.setText(

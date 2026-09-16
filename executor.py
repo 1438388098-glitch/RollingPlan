@@ -615,7 +615,10 @@ class PlanExecutor(QWidget):
 
         p.current_day += 1
         p.consumed += scheduler.today_state()["queue_used"]  # 今天的队列走到哪了
-        p.archived_base = len(p.archived)                    # 「今天完成的」重新从 0 算
+        # v0.22：归档按天分组 —— 用「今天完成后 archived 的长度」当作这一天与下一天的分界
+        day_end = len(p.archived)
+        p.daily_boundaries.append(day_end)
+        p.archived_base = day_end                              # 「今天完成的」重新从 0 算
         p.borrowed_slots = []                                # 切天时清空额外安排
         p.inplace_done = []                                  # 新的一天：每格状态归零
         p.slot_notes = []                                    # 新的一天：归档备注重新开始记

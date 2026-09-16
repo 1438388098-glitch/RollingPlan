@@ -9,6 +9,16 @@ v0.18 归档总览（PlanCalendarView）测试
 - 每格的 slot_notes 也显示出来
 - 分类切换：换到另一个分类时刷新整页
 - 空进度 (0/0) 不崩
+
+v0.22 追加（归档按天分组）：
+- 归档历史按天分组:每天一条「📅 第 N 天（X 条）」分隔标题 + 该天的条目（天与天之间倒序）
+- 老存档没有 daily_boundaries 时不崩,标成「第 1–N 天」
+- daily_boundaries 的模型层收敛（to_dict / from_dict / normalize / reset_progress / 撤销栈）
+- 切天（executor.on_next_day）把当天归档条数 push 进 daily_boundaries
+
+列表结构的判定方式：QListWidgetItem.setData(Qt.UserRole) 标了
+"day_header" / "plan" / "placeholder",测试按它筛行,不要硬编码下标
+（否则加一行分隔标题就全错位 —— v0.22 就是这么发现的）。
 """
 import os
 import sys
@@ -16,7 +26,8 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QMessageBox
 app = QApplication.instance() or QApplication(sys.argv)
 
 from rollingplan import ParentPlan, PlanData
@@ -29,6 +40,37 @@ def _make_parent(name="测试", plans=None, slots=None):
     p.time_slots = list(slots or [{"name":"早","count":3}])
     p.normalize()
     return p
+
+
+def _items_by_role(cv, role_name):
+    """按 UserRole 里的标记筛列表行（不依赖下标）。"""
+    out = []
+    for i in range(cv.archive_list.count()):
+        it = cv.archive_list.item(i)
+        if it.data(Qt.UserRole) == role_name:
+            out.append(it)
+    return out
+
+
+def _plan_rows(cv):
+    return _items_by_role(cv, "plan")
+
+
+def _header_rows(cv):
+    return _items_by_role(cv, "day_header")
+
+
+def _headers_text(cv):
+    return [it.text() for it in _header_rows(cv)]
+
+
+def _plans_text(cv):
+    """条目文本（去掉前面的缩进空格）"""
+    return [it.text().strip() for it in _plan_rows(cv)]
+
+
+def _is_green(item):
+    return item.foreground().color().green() > 50
 
 
 class TestCalendarViewInitial(unittest.TestCase):
@@ -48,6 +90,8 @@ class TestCalendarViewInitial(unittest.TestCase):
         self.assertEqual(cv.archive_list.count(), 1)
         first = cv.archive_list.item(0).text()
         self.assertIn("暂无归档", first)
+        # 占位符有自己的标记（v0.22：测试用它区分「没归档」和「有归档但没分到天」）
+        self.assertEqual(cv.archive_list.item(0).data(Qt.UserRole), "placeholder")
 
 
 class TestCalendarViewWithArchive(unittest.TestCase):
@@ -65,16 +109,16 @@ class TestCalendarViewWithArchive(unittest.TestCase):
     def test_archive_list_count(self):
         p, data = self._setup()
         cv = PlanCalendarView(data)
-        # 3 条归档 → 列表 3 行（没占位符）
-        self.assertEqual(cv.archive_list.count(), 3)
+        # 3 条归档 → 3 个条目行（加上 1 行分隔标题）
+        self.assertEqual(len(_plan_rows(cv)), 3)
+        self.assertEqual(len(_header_rows(cv)), 1)
 
     def test_archive_list_recent_first(self):
         p, data = self._setup()
         cv = PlanCalendarView(data)
-        # 倒序：列表 index 0 = 最新 = "3"
-        self.assertIn("3", cv.archive_list.item(0).text())
-        self.assertIn("2", cv.archive_list.item(1).text())
-        self.assertIn("1", cv.archive_list.item(2).text())
+        # 倒序：第一个条目行 = 最新 = "3"
+        texts = _plans_text(cv)
+        self.assertEqual(texts, ["3", "2", "1"])
 
     def test_progress_label_format(self):
         p, data = self._setup()
@@ -98,10 +142,10 @@ class TestCalendarViewWithArchive(unittest.TestCase):
         cv = PlanCalendarView(data)
         # 3 条都今天完成 → 全都应该是深绿。
         # QBrush 默认前景色是黑色(Qt.GlobalColor.black);darkGreen 的 green 分量 > 50。
-        for i in range(cv.archive_list.count()):
-            item = cv.archive_list.item(i)
-            color = item.foreground().color()
-            self.assertGreater(color.green(), 50, f"item {i} 没设成深绿: {color.name()}")
+        rows = _plan_rows(cv)
+        self.assertEqual(len(rows), 3)
+        for i, item in enumerate(rows):
+            self.assertTrue(_is_green(item), f"条目 {i} 没设成深绿: {item.text()}")
 
     def test_non_today_not_green(self):
         """今天之前完成的（在 done_today 之外的）不是深绿。
@@ -117,11 +161,12 @@ class TestCalendarViewWithArchive(unittest.TestCase):
         data = PlanData()
         data.parents = [p]
         cv = PlanCalendarView(data)
-        self.assertEqual(cv.archive_list.count(), 3)
-        item_today = cv.archive_list.item(0)   # "c" 今天 → 深绿
-        item_past = cv.archive_list.item(1)    # "b" 不是今天 → 默认色
-        t_color = item_today.foreground().color()
-        p_color = item_past.foreground().color()
+        rows = _plan_rows(cv)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].text().strip(), "c")   # 最近的在最上
+        self.assertEqual(rows[1].text().strip(), "b")
+        t_color = rows[0].foreground().color()
+        p_color = rows[1].foreground().color()
         self.assertNotEqual((t_color.red(), t_color.green(), t_color.blue()),
                             (p_color.red(), p_color.green(), p_color.blue()))
 
@@ -131,6 +176,242 @@ class TestCalendarViewWithArchive(unittest.TestCase):
         # 各时段的归档备注也要在 today_label 里看到
         self.assertIn("时段 1", cv.today_label.text())
         self.assertIn("时段 2", cv.today_label.text())
+
+
+class TestDayGrouping(unittest.TestCase):
+    """v0.22：归档历史按天分组（daily_boundaries）。"""
+
+    def _grouped(self):
+        """第 1 天完成 3 条、切天、第 2 天又完成 2 条（current_day=1）。"""
+        p = _make_parent(plans=["1","2","3","4","5","6","7","8","9"])
+        p.archived.extend(["1","2","3","4","5"])
+        p.current_day = 1
+        p.daily_boundaries = [3]        # 第 1 天结束时 archived 长度 = 3
+        p.archived_base = 3             # 第 2 天（今天）从 3 开始
+        p.normalize()
+        data = PlanData()
+        data.parents = [p]
+        data.current_parent_idx = 0
+        return p, data
+
+    def test_sections_split_by_boundary(self):
+        p, data = self._grouped()
+        cv = PlanCalendarView(data)
+        secs = cv._day_sections(p)
+        self.assertEqual(len(secs), 2)
+        # 第 1 天 = archived[0:3]
+        self.assertEqual(secs[0]["plans"], ["1","2","3"])
+        self.assertEqual(secs[0]["start"], 0)
+        self.assertFalse(secs[0]["current"])
+        # 第 2 天 = archived[3:]（进行中）
+        self.assertEqual(secs[1]["plans"], ["4","5"])
+        self.assertEqual(secs[1]["start"], 3)
+        self.assertTrue(secs[1]["current"])
+
+    def test_headers_recent_day_first(self):
+        p, data = self._grouped()
+        cv = PlanCalendarView(data)
+        headers = _headers_text(cv)
+        self.assertEqual(len(headers), 2)
+        self.assertIn("第 2 天", headers[0])      # 最近的天在最上
+        self.assertIn("进行中", headers[0])
+        self.assertIn("2 条", headers[0])
+        self.assertIn("第 1 天", headers[1])
+        self.assertIn("3 条", headers[1])
+
+    def test_plan_rows_grouped_and_recent_first(self):
+        p, data = self._grouped()
+        cv = PlanCalendarView(data)
+        # 第 2 天的两条在最上（5 → 4），第 1 天的三条在下面（3 → 2 → 1）
+        self.assertEqual(_plans_text(cv), ["5", "4", "3", "2", "1"])
+        # 顺序核对：标题(第2天) 5 4 标题(第1天) 3 2 1
+        kinds = [cv.archive_list.item(i).data(Qt.UserRole)
+                 for i in range(cv.archive_list.count())]
+        self.assertEqual(kinds,
+                         ["day_header", "plan", "plan",
+                          "day_header", "plan", "plan", "plan"])
+
+    def test_green_only_marks_today(self):
+        p, data = self._grouped()
+        cv = PlanCalendarView(data)
+        rows = _plan_rows(cv)
+        # 前两行（第 2 天 = 今天）深绿
+        self.assertTrue(_is_green(rows[0]))
+        self.assertTrue(_is_green(rows[1]))
+        # 后三行（第 1 天 = 过去）不是
+        for it in rows[2:]:
+            self.assertFalse(_is_green(it), f"过去的归档不该是深绿: {it.text().strip()}")
+
+    def test_archived_idx_per_row(self):
+        p, data = self._grouped()
+        cv = PlanCalendarView(data)
+        idxs = [it.data(Qt.UserRole + 1) for it in _plan_rows(cv)]
+        self.assertEqual(idxs, [4, 3, 2, 1, 0])   # 对应 archived 里的下标
+
+    def test_header_rows_not_selectable(self):
+        p, data = self._grouped()
+        cv = PlanCalendarView(data)
+        for it in _header_rows(cv):
+            self.assertEqual(it.flags(), Qt.NoItemFlags)
+
+    def test_legacy_save_without_boundaries(self):
+        """v0.21 之前的老存档没有 daily_boundaries → 一天都不切,标成区间。"""
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["a","b","c"])
+        p.current_day = 2            # 已经切过两次天,但边界信息缺失
+        p.archived_base = 2
+        p.daily_boundaries = []      # 老存档
+        p.normalize()
+        data = PlanData()
+        data.parents = [p]
+        cv = PlanCalendarView(data)
+        headers = _headers_text(cv)
+        self.assertEqual(len(headers), 1)
+        self.assertIn("第 1–3 天", headers[0])
+        self.assertEqual(_plans_text(cv), ["c", "b", "a"])
+
+    def test_no_archive_current_day_only(self):
+        """一条都没归档、但人已经在第 2 天 → 占位符照旧。"""
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.current_day = 1
+        p.normalize()
+        data = PlanData()
+        data.parents = [p]
+        cv = PlanCalendarView(data)
+        self.assertEqual(cv.archive_list.count(), 1)
+        self.assertEqual(cv.archive_list.item(0).data(Qt.UserRole), "placeholder")
+
+
+class TestDailyBoundariesModel(unittest.TestCase):
+    """v0.22：ParentPlan.daily_boundaries 的存取与收敛。"""
+
+    def test_to_dict_from_dict_roundtrip(self):
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["1","2","3","4"])
+        p.current_day = 2
+        p.daily_boundaries = [2, 4]
+        d = p.to_dict()
+        self.assertEqual(d["daily_boundaries"], [2, 4])
+        q = ParentPlan()
+        q.from_dict(d)
+        self.assertEqual(q.daily_boundaries, [2, 4])
+
+    def test_from_dict_old_save_defaults_empty(self):
+        p = _make_parent(plans=["1","2","3"])
+        d = p.to_dict()
+        del d["daily_boundaries"]
+        q = ParentPlan()
+        q.from_dict(d)
+        self.assertEqual(q.daily_boundaries, [])
+
+    def test_from_dict_ignores_junk(self):
+        p = _make_parent(plans=["1","2","3"])
+        p.archived.extend(["1","2"])
+        p.current_day = 2
+        d = p.to_dict()
+        d["daily_boundaries"] = ["x", None, 2]      # 混进非数字 → 只留 2
+        q = ParentPlan()
+        q.from_dict(d)
+        self.assertEqual(q.daily_boundaries, [2])
+
+    def test_normalize_clamps_to_archived_length(self):
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["1","2"])
+        p.current_day = 5
+        p.daily_boundaries = [1, 999, -3]
+        p.normalize()
+        # 999 → 2（= len(archived)）,-3 → 0；排序去重后仍是 [0, 1, 2]
+        self.assertEqual(p.daily_boundaries, [0, 1, 2])
+
+    def test_normalize_dedupes_and_sorts(self):
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["1","2","3"])
+        p.current_day = 4
+        p.daily_boundaries = [3, 1, 3, 1]
+        p.normalize()
+        self.assertEqual(p.daily_boundaries, [1, 3])
+
+    def test_normalize_truncates_to_current_day(self):
+        """每天切一次天才 push 一条 → 边界条数不可能超过 current_day。"""
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["1","2","3"])
+        p.current_day = 0                       # 还没切过天
+        p.daily_boundaries = [1, 2, 3]          # 脏数据：多了
+        p.normalize()
+        self.assertEqual(p.daily_boundaries, [])
+
+    def test_reset_progress_clears_boundaries(self):
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["1","2","3"])
+        p.current_day = 1
+        p.daily_boundaries = [3]
+        p.reset_progress()
+        self.assertEqual(p.daily_boundaries, [])
+        self.assertEqual(p.current_day, 0)
+        self.assertEqual(p.archived_base, 0)
+        self.assertEqual(p.archived, [])
+
+    def test_undo_restores_boundaries(self):
+        """撤销栈带上了 daily_boundaries（否则撤回去天分组会跟 current_day 不一致）。"""
+        p = _make_parent(plans=["1","2","3","4","5","6"])
+        p.archived.extend(["1","2","3"])
+        p.current_day = 1
+        p.daily_boundaries = [3]
+        p.archived_base = 3
+        p.push_history()
+        p.archived.append("4")          # 完成一条
+        p.archived_base = 3
+        p.current_day = 2               # 又切了一天（不进栈,模拟直接改状态）
+        p.daily_boundaries = [3, 4]
+        p.normalize()
+        self.assertTrue(p.undo())       # 回到 push_history 那一刻
+        self.assertEqual(p.current_day, 1)
+        self.assertEqual(p.daily_boundaries, [3])
+
+    def test_snapshot_keys_include_boundaries(self):
+        self.assertIn("daily_boundaries", ParentPlan._SNAPSHOT_KEYS)
+
+
+class TestNextDayPushesBoundary(unittest.TestCase):
+    """v0.22：executor.on_next_day 真的会把当天归档条数写进 daily_boundaries。"""
+
+    def _win(self):
+        from rollingplan import MainWindow
+        win = MainWindow()
+        p = ParentPlan("测试")
+        p.plans = ["1","2","3","4","5","6","7","8","9"]
+        p.time_slots = [{"name":"早","count":3}]
+        p.normalize()
+        win.data.parents = [p]
+        win.data.current_parent_idx = 0
+        win.executor.refresh()
+        return win, p
+
+    def test_on_next_day_appends_boundary(self):
+        win, p = self._win()
+        # 今天完成 1 条
+        win.executor.on_complete_slot(0)
+        self.assertEqual(len(p.archived), 1)
+
+        orig = QMessageBox.question
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        try:
+            win.executor.on_next_day()
+        finally:
+            QMessageBox.question = orig
+
+        self.assertEqual(p.current_day, 1)
+        self.assertEqual(p.daily_boundaries, [1])
+        self.assertEqual(p.archived_base, 1)
+        # 第 2 天再完成 1 条后,分组应该是「第 1 天 1 条 / 第 2 天进行中 1 条」
+        win.executor.on_complete_slot(0)
+        cv = win.calendar_view
+        cv.refresh()
+        self.assertEqual(_plans_text(cv), [p.archived[-1], p.archived[0]])
+        headers = _headers_text(cv)
+        self.assertEqual(len(headers), 2)
+        self.assertIn("第 2 天", headers[0])
+        self.assertIn("第 1 天", headers[1])
 
 
 class TestMultiParentSwitch(unittest.TestCase):
@@ -146,15 +427,14 @@ class TestMultiParentSwitch(unittest.TestCase):
         data.current_parent_idx = 0
 
         cv = PlanCalendarView(data)
-        self.assertEqual(cv.archive_list.count(), 2)
-        # 倒序：item(0) = 最新 = "2"，item(1) = "1"
-        self.assertIn("2", cv.archive_list.item(0).text())
-        self.assertIn("1", cv.archive_list.item(1).text())
+        self.assertEqual(len(_plan_rows(cv)), 2)
+        # 倒序：最新在最上 = "2"，下面 "1"
+        self.assertEqual(_plans_text(cv), ["2", "1"])
 
         # 切到学习
         cv.parent_combo.setCurrentIndex(1)
-        self.assertEqual(cv.archive_list.count(), 1)
-        self.assertIn("A", cv.archive_list.item(0).text())
+        self.assertEqual(len(_plan_rows(cv)), 1)
+        self.assertEqual(_plans_text(cv), ["A"])
 
     def test_empty_progress_no_crash(self):
         p = _make_parent(name="空")

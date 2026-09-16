@@ -51,6 +51,11 @@ class ParentPlan:
         self.archived = []         # 已完成（归档）的计划内容（累计；从队列里移除）
         self.archived_base = 0     # 进入当前天时 len(archived) 的快照 →「今天完成的」= archived[base:]
         self.consumed = 0          # 当前天在队列（plans - archived）里的起点下标
+        # ---- v0.22 归档按天分组 ----
+        # daily_boundaries[i] = 第 i+1 天结束时 archived 的长度
+        # (切天时 push len(archived) 即 archived_base; 第 1 天不 push, 第 2 天 push 表示「第 1 天 N 条后切到第 2 天」)
+        # calendar_view 用它做「📅 第 1 天 / 第 2 天」分组
+        self.daily_boundaries = []
         # ---- v0.10 每格各自的完成状态 ----
         self.inplace_done = []     # 「仅完成」钉住的格：长度 = 当天格数，每项是计划内容或 None
         self.slot_notes = []       # 每个时段栏的归档备注：[[内容, ...], ...] 长度 = 当天格数
@@ -77,6 +82,8 @@ class ParentPlan:
             "archived": self.archived,
             "archived_base": self.archived_base,
             "consumed": self.consumed,
+            # v0.22：归档按天分组边界(切天时 push len(archived))
+            "daily_boundaries": self.daily_boundaries,
             "inplace_done": self.inplace_done,
             "slot_notes": self.slot_notes,
             "slot_fixed": self.slot_fixed,
@@ -95,6 +102,8 @@ class ParentPlan:
         self.archived = [a for a in (d.get("archived") or []) if isinstance(a, str)]
         self.archived_base = d.get("archived_base", 0) or 0
         self.consumed = d.get("consumed", 0) or 0
+        # v0.22：归档按天分组边界(旧存档没有 → 空)
+        self.daily_boundaries = [int(b) for b in (d.get("daily_boundaries") or []) if isinstance(b, (int, float))]
         # v0.10：每格各自的完成状态（旧存档没有 → 空）
         self.inplace_done = list(d.get("inplace_done") or [])
         self.slot_notes = [list(n) for n in (d.get("slot_notes") or [])]
@@ -143,6 +152,17 @@ class ParentPlan:
         notes = [[x for x in (n or []) if isinstance(x, str)] if isinstance(n, list) else [] for n in notes]
         notes = (notes + [[] for _ in range(spd)])[:spd]
         self.slot_notes = notes
+        # v0.22：daily_boundaries 收敛
+        #   - 每个值在 [0, len(archived)] 内
+        #   - 单调递增 + 去重（同一个边界只留一个）
+        #   - 条数不超过已过去的天数（每切一天 push 一条 → len(daily_boundaries) ≤ current_day）
+        if not isinstance(self.daily_boundaries, list):
+            self.daily_boundaries = []
+        bs = sorted(max(0, min(int(b), len(self.archived)))
+                    for b in self.daily_boundaries if isinstance(b, (int, float)))
+        deduped = [b for i, b in enumerate(bs) if i == 0 or b > bs[i - 1]]
+        day_n = self.current_day if isinstance(self.current_day, int) else 0
+        self.daily_boundaries = deduped[:max(0, day_n)]
 
     def reset_progress(self):
         """v0.4：重置进度。plans/time_slots/start_date 不变。"""
@@ -151,6 +171,8 @@ class ParentPlan:
         self.archived = []
         self.archived_base = 0
         self.consumed = 0
+        # v0.22：归档按天分组边界也清空
+        self.daily_boundaries = []
         self.inplace_done = []
         self.slot_notes = []
         self.slot_fixed = []
@@ -163,7 +185,8 @@ class ParentPlan:
 
     _SNAPSHOT_KEYS = (
         "current_day", "borrowed_slots", "archived", "archived_base",
-        "consumed", "inplace_done", "slot_notes", "slot_fixed", "slot_blocked",
+        "consumed", "daily_boundaries",
+        "inplace_done", "slot_notes", "slot_fixed", "slot_blocked",
     )
     _SNAPSHOT_INT_KEYS = ("current_day", "archived_base", "consumed")
     _HISTORY_LIMIT = 50
