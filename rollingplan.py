@@ -1236,8 +1236,15 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(0)
 
     def keyPressEvent(self, event):
-        """只在「执行计划」页激活时，把 Ctrl+Enter / Ctrl+D / Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 转给 executor。
-        其他页面 / 其他组合一律放行给 super()(制定页的输入框、Tab 切换、Esc 关对话框等都正常)。"""
+        """只在「执行计划」页激活时，把快捷键转给 executor。
+
+        映射:
+        - Ctrl+Enter / Ctrl+Return  → 加一个
+        - Ctrl+D                     → 今天完成 / 进入下一天
+        - Ctrl+Z                     → 撤销（history 栈;on_undo）
+        - Ctrl+Shift+Z / Ctrl+Y      → 重做（history 栈;on_redo）
+        - Esc / Tab 等其他键放行给 super(),制定页的输入框、Tab 切换、对话框关闭都正常。
+        """
         if self.tabs.currentIndex() != 1:
             super().keyPressEvent(event)
             return
@@ -1251,9 +1258,17 @@ class MainWindow(QMainWindow):
                 self.executor.on_next_day()
                 return
             if key == Qt.Key_Z:
-                # v0.16：Ctrl+Z = 通用撤销（history 栈，覆盖所有修改类动作）。
-                # 老「退回」按钮（return_btn）走 on_return,行为不变（仅撤完成）。
-                self.executor.on_undo()
+                if mods & Qt.ShiftModifier:
+                    # v0.20：Ctrl+Shift+Z = redo(老 tooltip / 注释里就提到,代码一直没绑)
+                    self.executor.on_redo()
+                else:
+                    # v0.16：Ctrl+Z = 通用撤销(history 栈,覆盖所有修改类动作)。
+                    # 老「退回」按钮(return_btn)走 on_return,行为不变（仅撤完成）。
+                    self.executor.on_undo()
+                return
+            if key == Qt.Key_Y:
+                # v0.20：Ctrl+Y = redo(标准编辑器绑定;redo_btn tooltip 提到了)
+                self.executor.on_redo()
                 return
         super().keyPressEvent(event)
 
