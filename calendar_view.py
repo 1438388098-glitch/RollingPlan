@@ -11,15 +11,77 @@ v0.22 新增按天分组：archived 是按完成顺序的 list,daily_boundaries 
 - PlanData, ParentPlan(用 daily_boundaries 字段)
 - PlanScheduler
 """
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QDateTime
 from PyQt5.QtGui import QFont, QBrush, QPalette
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QListWidget, QListWidgetItem,
-    QComboBox, QGroupBox,
+    QComboBox, QGroupBox, QPushButton, QFileDialog, QMessageBox,
 )
 
 from scheduler import PlanScheduler
+
+
+def build_archive_text(p, scheduler, now_str=None):
+    """v0.22b：把当前分类的归档历史写成 UTF-8 文本（纯函数，方便测）。
+
+    结构：
+        标题 / 分类 / 导出时间 / 进度
+        📅 第 1 天（3 条）  ← 时间顺序（最近的一天在最后）
+        ...
+        ✅ 今天完成：…
+        📋 各时段归档备注：…
+    """
+    now_str = now_str or QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm")
+    done, total = scheduler.get_progress() if scheduler is not None else (0, 0)
+    lines = [
+        "RollingPlan 归档导出",
+        f"分类：{p.name}",
+        f"导出时间：{now_str}",
+        f"进度：已推进 {done} / 共 {total} 条（{pct(done, total)}）",
+        "",
+    ]
+
+    archived = list(p.archived)
+    if not archived:
+        lines.append("（暂无归档）")
+    else:
+        bounds = list(getattr(p, "daily_boundaries", []) or [])
+        current_day = p.current_day if isinstance(p.current_day, int) else 0
+        start = 0
+        for day_i, b in enumerate(bounds, 1):
+            plans = archived[start:b]
+            lines.append(f"📅 第 {day_i} 天（{len(plans)} 条）")
+            lines.extend(f"  {i}. {plan}" for i, plan in enumerate(plans, 1))
+            start = b
+        rest = archived[start:]
+        if len(bounds) < current_day:
+            head = f"📅 第 {len(bounds) + 1}–{current_day + 1} 天"
+        else:
+            head = f"📅 第 {current_day + 1} 天"
+        head += f"（进行中，{len(rest)} 条）" if rest else "（无归档）"
+        lines.append(head)
+        lines.extend(f"  {i}. {plan}" for i, plan in enumerate(rest, 1))
+
+    lines.append("")
+    done_today = scheduler.done_today() if scheduler is not None else []
+    lines.append("✅ 今天完成：" + ("、".join(done_today) if done_today else "（无）"))
+
+    notes = getattr(p, "slot_notes", None) or []
+    if any(notes):
+        lines.append("📋 各时段归档备注：")
+        for i, n in enumerate(notes):
+            if n:
+                lines.append(f"  时段 {i + 1}: " + "、".join(n))
+    return "\n".join(lines) + "\n"
+
+
+def export_archive_text(path, p, scheduler, now_str=None):
+    """写成文件（UTF-8，带 BOM 让 Windows 记事本也认）。返回传进来的 path。"""
+    text = build_archive_text(p, scheduler, now_str=now_str)
+    with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
+        f.write(text)
+    return path
 
 
 class PlanCalendarView(QWidget):
@@ -60,6 +122,12 @@ class PlanCalendarView(QWidget):
         self.parent_combo.setMinimumWidth(140)
         self.parent_combo.currentIndexChanged.connect(self._on_parent_changed)
         top_row.addWidget(self.parent_combo)
+
+        # v0.22b：把当前分类的归档历史导出成文本文件（留档 / 回顾用）
+        self.export_btn = QPushButton("⬇ 导出归档")
+        self.export_btn.setToolTip("把当前分类的归档历史写成 .txt（按天分组 + 今天完成 + 各时段备注）")
+        self.export_btn.clicked.connect(self._on_export)
+        top_row.addWidget(self.export_btn)
         layout.addLayout(top_row)
 
         # ============ 主区：进度 + 归档历史 + 今天完成 ============
@@ -122,6 +190,27 @@ class PlanCalendarView(QWidget):
         else:
             self.scheduler = None
         self._refresh_view()
+
+    def _on_export(self):
+        """v0.22b：导出当前分类的归档历史为文本文件。"""
+        if self.scheduler is None:
+            QMessageBox.information(self, "导出归档", "还没有可导出的分类。")
+            return
+        p = self.scheduler.p
+        default_name = "{} 归档-{}.txt".format(
+            p.name, QDateTime.currentDateTime().toString("yyyy-MM-dd")
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出归档", default_name, "文本文件 (*.txt)"
+        )
+        if not path:
+            return
+        try:
+            export_archive_text(path, p, self.scheduler)
+        except OSError as exc:
+            QMessageBox.warning(self, "导出失败", f"写文件失败：\n{exc}")
+            return
+        QMessageBox.information(self, "导出归档", f"已导出到：\n{path}")
 
     def _day_sections(self, p):
         """v0.22：把 archived 按天切成多段（时间顺序：第 1 天 → 当前天）。

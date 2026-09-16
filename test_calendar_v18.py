@@ -31,7 +31,10 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 app = QApplication.instance() or QApplication(sys.argv)
 
 from rollingplan import ParentPlan, PlanData
-from calendar_view import PlanCalendarView
+from calendar_view import (
+    PlanCalendarView, build_archive_text, export_archive_text,
+)
+from scheduler import PlanScheduler
 
 
 def _make_parent(name="测试", plans=None, slots=None):
@@ -463,6 +466,97 @@ class TestMainWindowHasThirdTab(unittest.TestCase):
         # 是 PlanCalendarView 实例
         from calendar_view import PlanCalendarView
         self.assertIsInstance(mw.calendar_view, PlanCalendarView)
+
+
+class TestArchiveExport(unittest.TestCase):
+    """v0.22b：把归档历史导出成文本（「⬇ 导出归档」按钮背后那套）。"""
+
+    def _sched(self, plans, archived, current_day=0, boundaries=None,
+               archived_base=None, notes=None):
+        p = _make_parent(plans=plans)
+        p.archived.extend(archived)
+        p.current_day = current_day
+        p.daily_boundaries = list(boundaries or [])
+        p.archived_base = len(archived) if archived_base is None else archived_base
+        p.slot_notes = list(notes or [])
+        p.normalize()
+        return p, PlanScheduler(p)
+
+    def test_text_has_day_groups_and_today(self):
+        p, s = self._sched(["1", "2", "3", "4", "5", "6"],
+                           ["1", "2", "3", "4", "5"], current_day=1, boundaries=[3],
+                           archived_base=3)     # 第 2 天（今天）= archived[3:] = 4、5
+        txt = build_archive_text(p, s, now_str="2026-09-16 18:20")
+        self.assertIn("RollingPlan 归档导出", txt)
+        self.assertIn("分类：测试", txt)
+        self.assertIn("导出时间：2026-09-16 18:20", txt)
+        self.assertIn("已推进", txt)
+        self.assertIn("共 6 条", txt)
+        self.assertIn("📅 第 1 天（3 条）", txt)
+        self.assertIn("  1. 1", txt)
+        self.assertIn("📅 第 2 天（进行中，2 条）", txt)
+        self.assertIn("✅ 今天完成：4、5", txt)
+        # 时间顺序：第 1 天在前
+        self.assertLess(txt.index("第 1 天（3 条）"), txt.index("第 2 天（进行中"))
+        # 第 1 天的三条都列出来了
+        for n in ("1", "2", "3"):
+            self.assertIn(f"  {n}. {n}", txt)
+
+    def test_text_includes_slot_notes(self):
+        p, s = self._sched(["1", "2", "3", "4", "5", "6"], ["1", "2", "3"],
+                           current_day=1, boundaries=[3], archived_base=0,
+                           notes=[["1"], ["2", "3"], []])
+        txt = build_archive_text(p, s, now_str="X")
+        self.assertIn("📋 各时段归档备注：", txt)
+        self.assertIn("时段 1: 1", txt)
+        self.assertIn("时段 2: 2、3", txt)
+        self.assertNotIn("时段 3", txt)
+
+    def test_text_empty_archive(self):
+        p, s = self._sched(["1", "2", "3"], [])
+        txt = build_archive_text(p, s, now_str="X")
+        self.assertIn("（暂无归档）", txt)
+        self.assertIn("✅ 今天完成：（无）", txt)
+
+    def test_text_legacy_without_boundaries(self):
+        p, s = self._sched(["1", "2", "3"], ["a", "b"], current_day=2)
+        txt = build_archive_text(p, s, now_str="X")
+        self.assertIn("第 1–3 天", txt)
+
+    def test_export_writes_utf8_file(self):
+        import tempfile
+        p, s = self._sched(["1", "2", "3", "4", "5", "6"],
+                           ["1", "2", "3", "4", "5"], current_day=1, boundaries=[3])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "gt.txt")
+            ret = export_archive_text(path, p, s, now_str="2026-09-16 18:20")
+            self.assertEqual(ret, path)
+            self.assertTrue(os.path.exists(path))
+            with open(path, encoding="utf-8-sig") as f:
+                got = f.read()
+        self.assertEqual(got, build_archive_text(p, s, now_str="2026-09-16 18:20"))
+        self.assertIn("📅 第 2 天（进行中，2 条）", got)
+
+    def test_export_button_present(self):
+        p, s = self._sched(["1", "2", "3"], ["1"])
+        data = PlanData()
+        data.parents = [p]
+        cv = PlanCalendarView(data)
+        self.assertTrue(hasattr(cv, "export_btn"))
+        self.assertIn("导出", cv.export_btn.text())
+
+    def test_export_handler_without_scheduler_safe(self):
+        """没有分类时点导出不能崩（scheduler=None 分支）。"""
+        cv = PlanCalendarView(PlanData())
+        cv.scheduler = None
+        orig = QMessageBox.information
+        calls = []
+        QMessageBox.information = staticmethod(lambda *a, **k: calls.append(a))
+        try:
+            cv._on_export()
+        finally:
+            QMessageBox.information = orig
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":
