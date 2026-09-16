@@ -98,7 +98,12 @@ class ParentPlan:
         sd = d.get("start_date")
         if sd:
             self.start_date = QDate.fromString(sd, "yyyy-MM-dd")
-        self.current_day = d.get("current_day", 0)
+        # v0.30 类型防线（审计 P1-5）：脏 JSON 里的 "3"/2.7/-1 原样进来
+        # 会让 addDays 抛 TypeError / 天数出现负值 —— 统一 int 化 + 夹非负
+        try:
+            self.current_day = max(0, int(d.get("current_day", 0)))
+        except (TypeError, ValueError):
+            self.current_day = 0
         self.borrowed_slots = d.get("borrowed_slots", [])
         self.archived = [a for a in (d.get("archived") or []) if isinstance(a, str)]
         self.archived_base = d.get("archived_base", 0) or 0
@@ -164,6 +169,12 @@ class ParentPlan:
         deduped = [b for i, b in enumerate(bs) if i == 0 or b > bs[i - 1]]
         day_n = self.current_day if isinstance(self.current_day, int) else 0
         self.daily_boundaries = deduped[:max(0, day_n)]
+        # v0.30：current_day 本身也收敛（审计 P1-5：normalize 之前唯独漏了它）
+        if not isinstance(self.current_day, int) or self.current_day < 0:
+            try:
+                self.current_day = max(0, int(self.current_day))
+            except (TypeError, ValueError):
+                self.current_day = 0
 
     def reset_progress(self):
         """v0.4：重置进度。plans/time_slots/start_date 不变。"""
@@ -332,9 +343,15 @@ class PlanData:
             self.parents.append(p)
         if not self.parents:
             self.parents = [ParentPlan("分类1")]
-        self.current_parent_idx = d.get("current_parent_idx", 0)
-        if self.current_parent_idx >= len(self.parents):
-            self.current_parent_idx = 0
+        # v0.30 类型防线（审计 P1-5）：负数/浮点/字符串 idx 原样进来会在
+        # current_parent 处 IndexError 崩进程 —— int 化 + 夹进 [0, len-1]
+        try:
+            idx = int(d.get("current_parent_idx", 0))
+        except (TypeError, ValueError):
+            idx = 0
+        if not 0 <= idx < len(self.parents):
+            idx = 0
+        self.current_parent_idx = idx
 
     def has_borrowed(self):
         """任一母计划是否正在借用额外轮（会因编辑而索引错位）"""
