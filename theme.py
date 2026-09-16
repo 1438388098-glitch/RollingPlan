@@ -228,13 +228,18 @@ QPushButton#rpSuccessSm {
 }
 QPushButton#rpSuccessSm:hover { background-color: $success_hover; }
 QPushButton#rpSuccessSm:pressed { background-color: $success_pressed; }
-QPushButton#rpGhost {
+QPushButton#rpGhost, QToolButton#rpGhost {
     background: transparent;
     color: $text_dim;
     border: none;
 }
-QPushButton#rpGhost:hover { background-color: $surface_hover; color: $text_strong; }
-QPushButton#rpGhost:pressed { background-color: $btn_pressed; }
+QPushButton#rpGhost:hover, QToolButton#rpGhost:hover {
+    background-color: $surface_hover;
+    color: $text_strong;
+}
+QPushButton#rpGhost:pressed, QToolButton#rpGhost:pressed {
+    background-color: $btn_pressed;
+}
 QPushButton#rpGhostOutline {
     background: transparent;
     color: $text_dim;
@@ -311,6 +316,12 @@ QGroupBox::title {
 QWidget#rpCard {
     background-color: $card;
     border: 1px solid $border;
+    border-radius: 8px;
+}
+QWidget#rpSlotCard {
+    background-color: $card;
+    border: 1px solid $border;
+    border-left: 3px solid $accent;
     border-radius: 8px;
 }
 QWidget#rpExtraCard {

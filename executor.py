@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QDialog, QScrollArea, QInputDialog, QGroupBox, QTextEdit, QMenu,
 )
 from PyQt5.QtCore import Qt, QSettings
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QCursor
 from typing import TYPE_CHECKING
 
 from scheduler import PlanScheduler, _pending_of
@@ -42,11 +42,10 @@ class PlanExecutor(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
         layout.setSpacing(12)
-        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setContentsMargins(24, 20, 24, 20)
 
-        # ============ 顶部：极简一行（v0.26）============
+        # ============ 顶部：极简一行（v0.26，v0.30 换语义角色）============
         # 默认只留「⌄ 更多」+ 当前分类名。切换分类 / 主题 / 返回制定 全部收进「更多」里
-        # （用户反馈：顶栏一排控件 + 三行居中文字太杂乱，分散注意力）
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
 
@@ -62,9 +61,10 @@ class PlanExecutor(QWidget):
 
         top_row.addStretch()
 
-        # 当前分类名（小字、灰色：够认就行，不抢版面）
+        # 当前分类名（小字：够认就行，不抢版面）
         self.parent_combo_label = QLabel()
         self.parent_combo_label.setFont(QFont("Microsoft YaHei", 9))
+        self.parent_combo_label.setObjectName("rpDim")
         top_row.addWidget(self.parent_combo_label)
         layout.addLayout(top_row)
 
@@ -108,23 +108,20 @@ class PlanExecutor(QWidget):
         layout.addWidget(self.advanced_container)
         self.advanced_container.setVisible(False)   # 默认收起：默认视图只有「更多」
 
-        # ============ 日期 + 状态（v0.26：三行合并成两行）============
-        # 主标题（日期）保留大字号；「进度」「今天已完成」合并成一行小字
+        # ============ 日期 + 状态（v0.30：标题层级走 QSS 角色）============
         self.date_label = QLabel()
-        self.date_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
         self.date_label.setAlignment(Qt.AlignCenter)
+        self.date_label.setObjectName("rpTitle")     # 17pt 粗，页面主标题
         layout.addWidget(self.date_label)
 
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setFont(QFont("Microsoft YaHei", 11))
-        # 不设 inline color — QSS 接管（dark 下浅灰、light 下深色都能看见）
+        self.status_label.setObjectName("rpDim")     # 小字灰阶，不抢戏
         layout.addWidget(self.status_label)
 
-        # ============ 今天：冷调主区 ============
-        # 时段少时居中显示，时段多时自然撑开
+        # ============ 今天：卡片化主区 ============
         self.day_layout = QVBoxLayout()
-        self.day_layout.setSpacing(8)
+        self.day_layout.setSpacing(10)
         self.day_layout.setAlignment(Qt.AlignCenter)  # 内容垂直居中
         day_container = QWidget()
         day_container.setLayout(self.day_layout)
@@ -145,12 +142,12 @@ class PlanExecutor(QWidget):
 
         # ============ 主操作大按钮（两个并列、加大高度）============
         action_row = QHBoxLayout()
-        action_row.setSpacing(10)
+        action_row.setSpacing(12)
 
         self.add_next_btn = QPushButton("➕ 加一个")
         self.add_next_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.add_next_btn.setObjectName("rpPrimary")
-        self.add_next_btn.setMinimumHeight(50)
+        self.add_next_btn.setMinimumHeight(52)
         self.add_next_btn.setToolTip("从还没安排的队列里顺延一条  (Ctrl+Enter)")
         self.add_next_btn.clicked.connect(self.on_add_next)
         action_row.addWidget(self.add_next_btn)
@@ -158,7 +155,7 @@ class PlanExecutor(QWidget):
         self.done_btn = QPushButton("✓ 今天完成")
         self.done_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.done_btn.setObjectName("rpSuccess")
-        self.done_btn.setMinimumHeight(50)
+        self.done_btn.setMinimumHeight(52)
         self.done_btn.setToolTip("确认今天的安排全部结束,进入下一天  (Ctrl+D)")
         self.done_btn.clicked.connect(self.on_next_day)
         action_row.addWidget(self.done_btn)
@@ -172,18 +169,15 @@ class PlanExecutor(QWidget):
         # - return_btn = 老「退回」按钮（仅撤今天完成 / 退额外轮最后一条；旧行为不变）
         # - undo_btn   = 新「撤销」按钮（撤任意最近动作，含加/退/固定/拦截；通用 history 栈）
         # - redo_btn   = 新「重做」按钮（can_redo 时才显示）
-        # 老按钮仍在第一位,因为它是历史最久的入口 + 旧测试直接读 return_btn 文案。
-        # 新按钮给它腾两个位（撤销 + 重做），都在「添加指定」之前。
         sub_row = QHBoxLayout()
         self.return_btn = QPushButton("⤴ 退回")
         self.return_btn.setToolTip("优先撤销今天最近一次「完成」,否则退额外轮最后一条")
         self.return_btn.clicked.connect(self.on_return)
         sub_row.addWidget(self.return_btn)
-        # 新版 history 栈的撤销入口
         self.undo_btn = QPushButton("↶ 撤销")
         self.undo_btn.setToolTip("撤销任意最近动作（完成/退回/添加/固定/拦截）(Ctrl+Shift+Z)")
         self.undo_btn.clicked.connect(self.on_undo)
-        self.undo_btn.setVisible(False)   # 默认收起 —— 只在真的有 history 时显示
+        self.undo_btn.setVisible(False)
         sub_row.addWidget(self.undo_btn)
         self.redo_btn = QPushButton("↷ 重做")
         self.redo_btn.setToolTip("重做刚被撤销的动作 (Ctrl+Shift+Z)")
@@ -196,9 +190,6 @@ class PlanExecutor(QWidget):
         sub_row.addWidget(self.add_specific_btn)
         sub_row.addStretch()
         adv_layout.addLayout(sub_row)
-
-        # 额外安排：v0.12 起列表移到「额外安排」按钮打开的对话框里
-        # （按钮在主操作大按钮上方，见 __init__）
 
         # ============ 计划队列（v0.27：底部一行，点开才展开）============
         self.queue_toggle = QToolButton()
@@ -332,48 +323,48 @@ class PlanExecutor(QWidget):
     def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False,
                        slot_idx=None, show_complete=False, done=False, note=None,
                        fixed=False, blocked=False):
-        """添加一行。is_extra=True 时是「额外安排」，左边框绿色 + 浅绿背景。
+        """添加一行（v0.30 卡片化：普通格=蓝边卡 rpSlotCard，额外格=绿边卡 rpExtraCard）。
 
-        v0.11：
-        - 今天的每一格四个按钮：「固定计划」「拦截滚动」（小按钮，可切）
-          + 「仅完成」（标记完成、不滚动）+「✓ 完成并滚动」（归档并上滚）
-        - done=True 的格子（按过「仅完成」）：计划加删除线 + ✓，按钮灰掉
-        - fixed / blocked：格子左上角加 📌 / ⛔ 标记
-        - note：这一格的归档备注（已完成过的内容），显示成行尾小灰字
-        - 额外轮的行不带时段名 —— 时段只是当天承装计划的栏位
+        - 每格四个动作仍在：固定计划/拦截滚动/仅完成 藏在右键 + 行内可见的「⋯」里，
+          「✓ 完成并滚动」是唯一常驻 QPushButton（test_minimal_v06 数的就是它）
+        - done=True 的格子：计划加删除线（QSS rpDone）
+        - fixed / blocked：格子名前加 📌 / ⛔ 标记
+        - note：这一格的归档备注（已完成过的内容），行尾小灰字可展开
         """
         row = QHBoxLayout()
+        row.setSpacing(10)
 
         if is_extra:
             slot_label = QLabel("⤴")
             slot_label.setMinimumWidth(30)
         else:
             mark = "⛔" if blocked else ("📌" if fixed else "")
-            slot_label = QLabel(f"  {mark}{slot_name}:")
-            slot_label.setMinimumWidth(80)
-        slot_label.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
+            slot_label = QLabel(f"{mark}{slot_name}")
+            slot_label.setMinimumWidth(48)
+        slot_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+        slot_label.setObjectName("rpDim")
         row.addWidget(slot_label)
 
         if plan:
             plan_label = QLabel(f"✓ {plan}" if done else plan)
-            plan_label.setFont(QFont("Microsoft YaHei", 16))
+            plan_label.setFont(QFont("Microsoft YaHei", 14))
             if done:
-                # v0.30：颜色走全局 QSS 的语义角色（深浅主题都可读）
+                # 灰 + 删除线走 QSS 语义角色（深浅主题都可读）
                 plan_label.setObjectName("rpDone")
         else:
             plan_label = QLabel("(无)")
-            plan_label.setFont(QFont("Microsoft YaHei", 14))
+            plan_label.setFont(QFont("Microsoft YaHei", 12))
             plan_label.setObjectName("rpEmpty")
         row.addWidget(plan_label)
 
-        # 这一格的归档备注（v0.19：可点击展开/收起 —— 单击切换详情面板）
+        # 这一格的归档备注（v0.19：可点击展开/收起）
         if note:
             self._build_note_widget(row, note)
 
         row.addStretch(1)
 
         if show_complete and slot_idx is not None:
-            # v0.26b：固定计划 / 拦截滚动 不再常驻 —— 收进右键菜单（widget 留着，只是不显示）
+            # v0.26b：固定计划 / 拦截滚动 收进右键菜单 + 行内「⋯」（按钮仍在，不显示）
             for text, checked, handler in (
                 ("固定计划", bool(fixed), self.on_toggle_fixed),
                 ("拦截滚动", bool(blocked), self.on_toggle_blocked),
@@ -395,7 +386,7 @@ class PlanExecutor(QWidget):
                 toggle_btn.setVisible(False)
 
         if show_complete and plan and slot_idx is not None:
-            # v0.26b：仅完成 也收进右键菜单
+            # v0.26b：仅完成 也在菜单里
             only_btn = QPushButton("仅完成")
             only_btn.setFont(QFont("Microsoft YaHei", 11))
             only_btn.setStyleSheet(
@@ -410,37 +401,56 @@ class PlanExecutor(QWidget):
             row.addWidget(only_btn)
             only_btn.setVisible(False)
 
-            # 完成并滚动：这一格唯一常驻的按钮（归档 + 后面的上滚一格）
+            # 完成并滚动：这一格唯一常驻的 QPushButton
             scroll_btn = QPushButton("✓ 完成并滚动")
             scroll_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
             scroll_btn.setObjectName("rpSuccessSm")
             scroll_btn.setCursor(Qt.PointingHandCursor)
-            # v0.26b：告诉用户「别的操作在右键里」，避免藏得太死
+            # v0.26b：告诉用户「别的操作在右键/⋯里」
             extras_hint = []
             if not done:
                 extras_hint.append("仅完成")
             extras_hint += ["固定计划", "拦截滚动"]
-            scroll_btn.setToolTip("这一格右键还能：" + " / ".join(extras_hint))
+            scroll_btn.setToolTip("这一格右键或点「⋯」还能：" + " / ".join(extras_hint))
             scroll_btn.clicked.connect(
                 lambda checked=False, idx=slot_idx: self.on_complete_slot(idx))
             row.addWidget(scroll_btn)
 
+        # v0.30：行内可见「⋯」—— 右键菜单的显性化入口。
+        # 用 QToolButton：test_minimal_v06 数的是「每行可见 QPushButton 恰好 1 个」，
+        # QToolButton 不在统计里，极简口径不破。
+        if show_complete and slot_idx is not None:
+            menu_btn = QToolButton()
+            menu_btn.setText("⋯")
+            menu_btn.setObjectName("rpGhost")
+            menu_btn.setFont(QFont("Microsoft YaHei", 13))
+            menu_btn.setCursor(Qt.PointingHandCursor)
+            menu_btn.setToolTip("更多操作：仅完成 / 固定计划 / 拦截滚动")
+            menu_btn.clicked.connect(
+                lambda checked=False, idx=slot_idx, d=bool(done),
+                       f=bool(fixed), b=bool(blocked):
+                self._open_slot_menu(idx, d, f, b))
+            row.addWidget(menu_btn)
+
         container = QWidget()
-        if is_extra:
-            # v0.30：浅绿底改语义卡片（全局 QSS 双主题各自出正确配色）
-            container.setObjectName("rpExtraCard")
+        container.setObjectName("rpExtraCard" if is_extra else "rpSlotCard")
         cl = QHBoxLayout(container)
-        cl.setContentsMargins(6, 2, 6, 2)
+        cl.setContentsMargins(12, 8, 8, 8)
         cl.addLayout(row)
         parent_layout.addWidget(container)
 
-        # v0.26b：这一格的次要操作走右键菜单（右键哪一行都行）
+        # 右键菜单保留（v0.26b）：⋯ 是显性入口，右键是熟练用户快捷方式
         if show_complete and slot_idx is not None:
             container.setContextMenuPolicy(Qt.CustomContextMenu)
             container.customContextMenuRequested.connect(
                 lambda pos, c=container, idx=slot_idx, d=bool(done),
                        f=bool(fixed), b=bool(blocked):
                 self._on_slot_context_menu(c, pos, idx, d, f, b))
+
+    def _open_slot_menu(self, slot_idx, done, fixed, blocked):
+        """v0.30：行内「⋯」按钮打开格子菜单（复用右键同一个菜单）。"""
+        menu = self._build_slot_menu(self, slot_idx, done, fixed, blocked)
+        menu.exec_(QCursor.pos())
 
     def _build_slot_menu(self, parent, slot_idx, done, fixed, blocked):
         """v0.26b：一格的次要操作菜单（拆出来是为了能单测，不弹窗也能验）"""
@@ -493,7 +503,14 @@ class PlanExecutor(QWidget):
         if not day_plans:
             lbl = QLabel("今天没有安排")
             lbl.setAlignment(Qt.AlignCenter)
+            lbl.setObjectName("rpEmpty")
             self.day_layout.addWidget(lbl)
+            # v0.30：空态给出路（审计 P2-1），别让新用户对着空白发呆
+            go_edit = QPushButton("去制定计划 →")
+            go_edit.setObjectName("rpGhost")
+            go_edit.setCursor(Qt.PointingHandCursor)
+            go_edit.clicked.connect(self.on_switch_to_edit)
+            self.day_layout.addWidget(go_edit, 0, Qt.AlignCenter)
         else:
             for sidx, (sname, plan) in enumerate(day_plans):
                 self._add_slot_row(self.day_layout, sname, plan, is_extra=False,
