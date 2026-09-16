@@ -147,6 +147,8 @@ class PlanEditor(QWidget):
         self.parent_list = QListWidget()
         self.parent_list.setMaximumWidth(180)
         self.parent_list.currentRowChanged.connect(self.on_parent_select)
+        self.parent_list.itemDoubleClicked.connect(
+            lambda item: self.on_rename_parent())   # v0.30 R27：双击重命名分类
         pg_layout.addWidget(self.parent_list)
 
         pg_btn_col = QVBoxLayout()
@@ -187,6 +189,8 @@ class PlanEditor(QWidget):
         self.plan_list = QListWidget()
         self.plan_list.setMinimumHeight(160)
         self.plan_list.setMaximumHeight(240)
+        self.plan_list.itemDoubleClicked.connect(
+            lambda item: self.edit_plan())   # v0.30 R27：双击编辑计划
         plan_layout.addWidget(self.plan_list)
 
         edit_row = QHBoxLayout()
@@ -230,6 +234,8 @@ class PlanEditor(QWidget):
         self.slot_list = QListWidget()
         self.slot_list.setMinimumHeight(120)
         self.slot_list.setMaximumHeight(180)
+        self.slot_list.itemDoubleClicked.connect(
+            lambda item: self.edit_slot())   # v0.30 R27：双击编辑时段
         slot_layout.addWidget(self.slot_list)
 
         slot_row = QHBoxLayout()

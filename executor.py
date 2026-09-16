@@ -459,6 +459,7 @@ class PlanExecutor(QWidget):
 
     def _on_slot_context_menu(self, container, pos, slot_idx, done, fixed, blocked):
         menu = self._build_slot_menu(container, slot_idx, done, fixed, blocked)
+        animations.pop_window(menu)   # R27：右键菜单与「⋯」菜单同款出场淡入
         menu.exec_(container.mapToGlobal(pos))
 
     def refresh(self):
