@@ -697,7 +697,18 @@ class PlanExecutor(QWidget):
             msg = "今天是第 {} 天，还有未处理的事项：\n  • {}\n\n确认进入下一天？".format(
                 p.current_day + 1, "\n  • ".join(unfinished)
             )
-            reply = QMessageBox.question(self, "进入明天", msg)
+            # 5 参 question：默认按钮=否（防回车误确认），且可被测试打桩
+            reply = QMessageBox.question(
+                self, "进入明天", msg,
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+        elif not day_has_content:
+            # v0.30（审计 P2-3）：今天完全没安排时也要轻确认，防 Ctrl+D 连刷出「第 99 天」
+            reply = QMessageBox.question(
+                self, "进入明天",
+                "今天（第 {} 天）没有任何安排，要空过这一天吗？".format(p.current_day + 1),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply != QMessageBox.Yes:
                 return
 

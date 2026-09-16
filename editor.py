@@ -496,8 +496,11 @@ class PlanEditor(QWidget):
         count = self.slot_count_input.value()
         if not name:
             return
-        if self.data.has_borrowed():
-            QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。\n完成今天后再来调整吧。")
+        if self.data.current_parent.borrowed_slots:
+            QMessageBox.warning(
+                self, "提示",
+                "分类「{}」今天有额外安排正在进行，暂时无法修改时段。\n完成今天后再来调整吧。".format(
+                    self.data.current_parent.name))
             return
         self.data.current_parent.time_slots.append({"name": name, "count": count})
         self.slot_name_input.clear()
@@ -509,8 +512,11 @@ class PlanEditor(QWidget):
         cur = self.slot_list.currentRow()
         if cur < 0:
             return
-        if self.data.has_borrowed():
-            QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。\n完成今天后再来调整吧。")
+        if self.data.current_parent.borrowed_slots:
+            QMessageBox.warning(
+                self, "提示",
+                "分类「{}」今天有额外安排正在进行，暂时无法修改时段。\n完成今天后再来调整吧。".format(
+                    self.data.current_parent.name))
             return
         slot = self.data.current_parent.time_slots[cur]
         # v0.30：一个表单搞定名字+数量（审计 P1-4：不再连弹两个框）
@@ -528,8 +534,11 @@ class PlanEditor(QWidget):
         cur = self.slot_list.currentRow()
         if cur < 0:
             return
-        if self.data.has_borrowed():
-            QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。\n完成今天后再来调整吧。")
+        if self.data.current_parent.borrowed_slots:
+            QMessageBox.warning(
+                self, "提示",
+                "分类「{}」今天有额外安排正在进行，暂时无法修改时段。\n完成今天后再来调整吧。".format(
+                    self.data.current_parent.name))
             return
         # v0.30（审计 P0-3）：删时段会改变每天的分格结构，今天的格子状态会重排
         name = self.data.current_parent.time_slots[cur]["name"]
@@ -544,8 +553,11 @@ class PlanEditor(QWidget):
         self.data.save()
 
     def slot_up(self):
-        if self.data.has_borrowed():
-            QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。")
+        if self.data.current_parent.borrowed_slots:
+            QMessageBox.warning(
+                self, "提示",
+                "分类「{}」今天有额外安排正在进行，暂时无法修改时段。".format(
+                    self.data.current_parent.name))
             return
         cur = self.slot_list.currentRow()
         if cur > 0:
@@ -556,8 +568,11 @@ class PlanEditor(QWidget):
             self.data.save()
 
     def slot_down(self):
-        if self.data.has_borrowed():
-            QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。")
+        if self.data.current_parent.borrowed_slots:
+            QMessageBox.warning(
+                self, "提示",
+                "分类「{}」今天有额外安排正在进行，暂时无法修改时段。".format(
+                    self.data.current_parent.name))
             return
         cur = self.slot_list.currentRow()
         s = self.data.current_parent.time_slots
