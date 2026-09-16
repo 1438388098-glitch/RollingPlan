@@ -57,6 +57,11 @@ class ParentPlan:
         # ---- v0.11 「固定计划」/「拦截滚动」 ----
         self.slot_fixed = []       # 固定住的格：这一格的原定计划不参与上滚
         self.slot_blocked = []     # 拦截滚动的格：这一格及往后都不参与上滚
+        # ---- v0.16 撤销栈（运行时不写盘：to_dict 不包含；切天/重启自动清空） ----
+        # 快照 = _snapshot_dict() 返回的 dict;只覆盖可变的状态字段,plans/time_slots/name 不在栈里
+        # (改计划/换名/换时段属于编辑器的活,不在执行页撤销栈范围)
+        self._history = []         # 栈顶 = 最近一次;栈上限 50,新的操作清空 _redo
+        self._redo = []
 
     def _slots_per_day(self):
         return sum(s.get("count", 1) for s in self.time_slots)
@@ -150,6 +155,115 @@ class ParentPlan:
         self.slot_notes = []
         self.slot_fixed = []
         self.slot_blocked = []
+        # 重置 = 一次大动作，把栈也清掉（不让用户「撤销整个重置」）
+        self._history = []
+        self._redo = []
+
+    # ---------------- v0.16 撤销栈 ----------------
+
+    _SNAPSHOT_KEYS = (
+        "current_day", "borrowed_slots", "archived", "archived_base",
+        "consumed", "inplace_done", "slot_notes", "slot_fixed", "slot_blocked",
+    )
+    _SNAPSHOT_INT_KEYS = ("current_day", "archived_base", "consumed")
+    _HISTORY_LIMIT = 50
+
+    def _snapshot_dict(self):
+        """抓一份当前所有可逆状态的浅拷贝快照。
+
+        列表里的内容是 list/str/None 不可变或拷贝;整数字段直接存。
+        返回的 dict 可以被 pickle 也可以 json。
+        """
+        snap = {}
+        for k in self._SNAPSHOT_KEYS:
+            v = getattr(self, k, [] if k not in self._SNAPSHOT_INT_KEYS else 0)
+            if isinstance(v, list):
+                if k == "slot_notes":
+                    snap[k] = [list(n) for n in v]
+                else:
+                    snap[k] = list(v)
+            else:
+                snap[k] = v
+        return snap
+
+    def _restore_snapshot(self, snap):
+        """把 _snapshot_dict() 返回的 dict 套回去。"""
+        for k in self._SNAPSHOT_KEYS:
+            v = snap.get(k)
+            if k == "slot_notes" and isinstance(v, list):
+                setattr(self, k, [list(n) for n in v])
+            elif isinstance(v, list):
+                setattr(self, k, list(v))
+            else:
+                setattr(self, k, v)
+        self.normalize()
+
+    def push_history(self):
+        """执行页修改状态前调一次：把当前状态入 _history,并清空 _redo。
+
+        上限 50 —— 更老的扔掉（UI 上不可能一次滚那么远）。
+        """
+        self._history.append(self._snapshot_dict())
+        if len(self._history) > self._HISTORY_LIMIT:
+            self._history = self._history[-self._HISTORY_LIMIT:]
+        self._redo = []
+
+    def can_undo(self):
+        return bool(self._history)
+
+    def can_redo(self):
+        return bool(self._redo)
+
+    def undo(self):
+        """弹一次 _history 顶,套回去;把当前快照推到 _redo。"""
+        if not self._history:
+            return False
+        cur = self._snapshot_dict()
+        snap = self._history.pop()
+        self._redo.append(cur)
+        if len(self._redo) > self._HISTORY_LIMIT:
+            self._redo = self._redo[-self._HISTORY_LIMIT:]
+        self._restore_snapshot(snap)
+        return True
+
+    def redo(self):
+        """弹一次 _redo 顶,套回去;把当前快照推到 _history。"""
+        if not self._redo:
+            return False
+        cur = self._snapshot_dict()
+        snap = self._redo.pop()
+        self._history.append(cur)
+        if len(self._history) > self._HISTORY_LIMIT:
+            self._history = self._history[-self._HISTORY_LIMIT:]
+        self._restore_snapshot(snap)
+        return True
+
+    def history_top_label(self):
+        """给 UI 用的：栈顶是哪个动作的简短说明。
+
+        简化版：对比当前快照与栈顶快照的差异，给一句人能看懂的提示。
+        旧版 undo_complete() 现在已变成 history 的一部分,所以可以放心删。
+        """
+        if not self._history:
+            return ""
+        snap = self._history[-1]
+        cur = self._snapshot_dict()
+        # 简单判断：归档条数变了 = 完成;额外轮条数变了 = 加/退
+        n_arc_now = len(cur["archived"])
+        n_arc_then = len(snap["archived"])
+        n_extra_now = len(cur["borrowed_slots"])
+        n_extra_then = len(snap["borrowed_slots"])
+        if n_arc_now > n_arc_then:
+            # 当前归档比栈顶多 = 栈顶是「撤销完成」的逆 → 提示「完成」相关
+            diff = n_arc_now - n_arc_then
+            return f"完成 {diff} 条" if diff > 1 else "完成"
+        if n_arc_now < n_arc_then:
+            return "撤销完成"
+        if n_extra_now > n_extra_then:
+            return "添加额外轮"
+        if n_extra_now < n_extra_then:
+            return "退回额外轮"
+        return "修改"
 
 
 class PlanData:
@@ -1035,12 +1149,28 @@ class PlanExecutor(QWidget):
         adv_layout.setContentsMargins(0, 4, 0, 0)
         adv_layout.setSpacing(8)
 
-        # 次要按钮行：退回 + 添加指定
+        # 次要按钮行（v0.16）：
+        # - return_btn = 老「退回」按钮（仅撤今天完成 / 退额外轮最后一条；旧行为不变）
+        # - undo_btn   = 新「撤销」按钮（撤任意最近动作，含加/退/固定/拦截；通用 history 栈）
+        # - redo_btn   = 新「重做」按钮（can_redo 时才显示）
+        # 老按钮仍在第一位,因为它是历史最久的入口 + 旧测试直接读 return_btn 文案。
+        # 新按钮给它腾两个位（撤销 + 重做），都在「添加指定」之前。
         sub_row = QHBoxLayout()
         self.return_btn = QPushButton("⤴ 退回")
-        self.return_btn.setToolTip("优先撤销今天最近一次「完成」,否则退额外轮最后一条  (Ctrl+Z)")
+        self.return_btn.setToolTip("优先撤销今天最近一次「完成」,否则退额外轮最后一条")
         self.return_btn.clicked.connect(self.on_return)
         sub_row.addWidget(self.return_btn)
+        # 新版 history 栈的撤销入口
+        self.undo_btn = QPushButton("↶ 撤销")
+        self.undo_btn.setToolTip("撤销任意最近动作（完成/退回/添加/固定/拦截）(Ctrl+Shift+Z)")
+        self.undo_btn.clicked.connect(self.on_undo)
+        self.undo_btn.setVisible(False)   # 默认收起 —— 只在真的有 history 时显示
+        sub_row.addWidget(self.undo_btn)
+        self.redo_btn = QPushButton("↷ 重做")
+        self.redo_btn.setToolTip("重做刚被撤销的动作 (Ctrl+Shift+Z)")
+        self.redo_btn.clicked.connect(self.on_redo)
+        self.redo_btn.setVisible(False)
+        sub_row.addWidget(self.redo_btn)
         self.add_specific_btn = QPushButton("⋯ 添加指定")
         self.add_specific_btn.setStyleSheet("color: #666;")
         self.add_specific_btn.clicked.connect(self.on_add_specific)
@@ -1240,9 +1370,22 @@ class PlanExecutor(QWidget):
         self.extra_btn.setEnabled(True)
 
         # 按钮启用状态 + 文案
+        # v0.16：return_btn = 老「退回」按钮（仅撤今天完成 / 退额外轮最后一条）,逻辑保持 v0.15 不变。
+        # undo_btn = 新 history 栈的撤销入口,只在 history 不空时显示。
+        # redo_btn = 新 history 栈的重做入口,只在 _redo 不空时显示。
         can_undo = self.scheduler.can_undo_complete()
         self.return_btn.setEnabled(can_undo or self.scheduler.can_return())
         self.return_btn.setText("↶ 撤销完成" if can_undo else "⤴ 退回")
+        self.undo_btn.setVisible(self.scheduler.p.can_undo())
+        if self.scheduler.p.can_undo():
+            label = self.scheduler.p.history_top_label() or "撤销"
+            self.undo_btn.setText(f"↶ 撤销「{label}」")
+            self.undo_btn.setEnabled(True)
+        else:
+            self.undo_btn.setText("↶ 撤销")
+            self.undo_btn.setEnabled(False)
+        self.redo_btn.setVisible(self.scheduler.p.can_redo())
+        self.redo_btn.setEnabled(self.scheduler.p.can_redo())
         self.add_next_btn.setEnabled(self.scheduler.can_borrow_next())
         self.add_specific_btn.setEnabled(bool(self.scheduler.available_borrow_names()))
 
@@ -1312,12 +1455,32 @@ class PlanExecutor(QWidget):
         self.refresh()
 
     def on_return(self):
-        """退回：优先撤销今天最近一次「完成」，没有了再退额外轮最后一个"""
+        """v0.9~v0.15 的「退回」按钮 = 「撤今天最近一次完成」或「退额外轮最后一条」。
+
+        走老 API（can_undo_complete / undo_complete / return_last_borrowed）而不是新栈 —— 
+        这样:
+        - 文案「↶ 撤销完成」/「⤴ 退回」可以保持旧的逻辑
+        - 老测试（期望 can_undo_complete 的精确语义、按钮文案）的语义不被新栈污染
+        - on_undo() 是新 API,单独负责「任意动作的撤销」,两个入口并存
+        """
         if self.scheduler.can_undo_complete():
             ok = self.scheduler.undo_complete()
         else:
             ok = self.scheduler.return_last_borrowed()
         if ok:
+            self.data.save()
+            self.refresh()
+
+    def on_undo(self):
+        """v0.16 新增:通用撤销 —— history 栈里有东西就撤一次,覆盖所有修改类动作。
+        on_return 走的是老路径(只能撤完成),两者并存,各有按钮/快捷键绑定。"""
+        if self.scheduler.undo():
+            self.data.save()
+            self.refresh()
+
+    def on_redo(self):
+        """v0.16 新增:重做 —— 恢复被 on_undo 撤掉的动作。"""
+        if self.scheduler.redo():
             self.data.save()
             self.refresh()
 
@@ -1571,7 +1734,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(0)
 
     def keyPressEvent(self, event):
-        """只在「执行计划」页激活时,把 Ctrl+Enter / Ctrl+D / Ctrl+Z 转给 executor。
+        """只在「执行计划」页激活时，把 Ctrl+Enter / Ctrl+D / Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 转给 executor。
         其他页面 / 其他组合一律放行给 super()(制定页的输入框、Tab 切换、Esc 关对话框等都正常)。"""
         if self.tabs.currentIndex() != 1:
             super().keyPressEvent(event)
@@ -1586,7 +1749,9 @@ class MainWindow(QMainWindow):
                 self.executor.on_next_day()
                 return
             if key == Qt.Key_Z:
-                self.executor.on_return()
+                # v0.16：Ctrl+Z = 通用撤销（history 栈，覆盖所有修改类动作）。
+                # 老「退回」按钮（return_btn）走 on_return,行为不变（仅撤完成）。
+                self.executor.on_undo()
                 return
         super().keyPressEvent(event)
 

@@ -276,11 +276,15 @@ class PlanScheduler:
         return len(self._future_slot_positions()) > 0
 
     def borrow_next(self):
-        """加一个：把队列里下一个还没安排的拉进额外轮"""
+        """加一个：把队列里下一个还没安排的拉进额外轮
+
+        v0.16：先 push 历史。
+        """
         positions = self._future_slot_positions()
         if not positions:
             return False
         day, sname, sidx, plan = positions[0]
+        self._push()
         self.p.borrowed_slots.append([sname, plan, day, sidx])
         return True
 
@@ -296,9 +300,13 @@ class PlanScheduler:
         return out
 
     def borrow_plan(self, plan_text):
-        """添加指定：把后面某一条还没安排的拉进额外轮"""
+        """添加指定：把后面某一条还没安排的拉进额外轮
+
+        v0.16：先 push 历史。
+        """
         for day, sname, sidx, plan in self._future_slot_positions():
             if plan == plan_text:
+                self._push()
                 self.p.borrowed_slots.append([sname, plan, day, sidx])
                 return True
         return False
@@ -316,9 +324,13 @@ class PlanScheduler:
         return names
 
     def borrow_slot(self, slot_name):
-        """添加指定（旧入口）：把后面坐在这个位置上的最近一条拉进额外轮"""
+        """添加指定（旧入口）：把后面坐在这个位置上的最近一条拉进额外轮
+
+        v0.16：先 push 历史。
+        """
         for day, sname, sidx, plan in self._future_slot_positions():
             if sname == slot_name:
+                self._push()
                 self.p.borrowed_slots.append([sname, plan, day, sidx])
                 return True
         return False
@@ -329,10 +341,13 @@ class PlanScheduler:
         - 还在候补的：直接从额外轮拿走
         - 已经滚进今天某一格的：拿走之后那一格会重新按顺序补（补不到就空着）
         - 被拿走的那条回到「还没安排」的队里，以后还能再拉
+
+        v0.16：先 push 历史。
         """
         self.p.normalize()
         for i, item in enumerate(self.p.borrowed_slots):
             if item[1] == plan_text:
+                self._push()
                 self.p.borrowed_slots.pop(i)
                 self.p.normalize()
                 return True
@@ -342,9 +357,13 @@ class PlanScheduler:
         return len(self.p.borrowed_slots) > 0
 
     def return_last_borrowed(self):
-        """退回：把额外轮最后 1 个推回去"""
+        """退回：把额外轮最后 1 个推回去
+
+        v0.16：先 push 历史。
+        """
         if not self.p.borrowed_slots:
             return False
+        self._push()
         self.p.borrowed_slots.pop()
         return True
 
@@ -353,11 +372,17 @@ class PlanScheduler:
 
     # ---------------- 完成 / 撤销 ----------------
 
+    def _push(self):
+        """v0.16：执行页修改前 push 一次状态快照（用于撤销栈）"""
+        self.p.push_history()
+
     def complete_only_slot(self, slot_idx):
         """仅完成：这一格标记完成（记进该时段的归档备注），计划留在格里，不滚动
 
         用途：事情做完了，但不想让后面的计划往上滚（比如还想按原时段做）。
-        按过之后这一格的「仅完成」就灰掉；想滚的时候还可以按「完成并滚动」。
+        按过之后这一格的「仅完成」就灰掉;想滚的时候还可以按「完成并滚动」。
+
+        v0.16：先 push 历史,这样可以被 undo() 撤回。
         """
         st = self.today_state()
         rows = st["rows"]
@@ -366,6 +391,7 @@ class PlanScheduler:
         plan = rows[slot_idx][1]
         if not plan or st["row_done"][slot_idx]:
             return False
+        self._push()
         self.p.archived.append(plan)
         self._drop_from_extras(plan)
         self.p.normalize()
@@ -374,9 +400,10 @@ class PlanScheduler:
         return True
 
     def complete_today_slot(self, slot_idx):
-        """完成并滚动：归档这一格，后面的整体上滚一格
+        """完成并滚动:归档这一格,后面的整体上滚一格
 
-        v0.10：腾出来的最后一格只由额外轮补 —— 不会把第二天的计划滚上来。
+        v0.10:腾出来的最后一格只由额外轮补 —— 不会把第二天的计划滚上来。
+        v0.16:先 push 历史。
         """
         st = self.today_state()
         rows = st["rows"]
@@ -385,15 +412,16 @@ class PlanScheduler:
         plan = rows[slot_idx][1]
         if not plan:
             return False
+        self._push()
         if not st["row_done"][slot_idx]:
-            # 这一格还没「仅完成」过：先归档 + 记进备注
+            # 这一格还没「仅完成」过:先归档 + 记进备注
             self.p.archived.append(plan)
             self._drop_from_extras(plan)
             self.p.normalize()
             self.p.slot_notes[slot_idx].append(plan)
-        # 已经「仅完成」过的：归档和备注都做过了，这里只把它解开，让它滚起来
+        # 已经「仅完成」过的:归档和备注都做过了,这里只把它解开,让它滚起来
         self.p.inplace_done[slot_idx] = None
-        # 固定 / 拦截过的格子，完成后也解开（不然它一直占着不动）
+        # 固定 / 拦截过的格子,完成后也解开（不然它一直占着不动）
         self.p.slot_fixed[slot_idx] = None
         self.p.slot_blocked[slot_idx] = None
         self.p.normalize()
@@ -413,33 +441,43 @@ class PlanScheduler:
         return rows[slot_idx][1] is not None
 
     def toggle_fixed(self, slot_idx):
-        """固定计划：这一格的原定计划不参与上滚（它后面的照常参与）"""
+        """固定计划:这一格的原定计划不参与上滚(它后面的照常参与)
+
+        v0.16:先 push 历史(改的是钉住状态,而不是队列/归档)
+        """
         st = self.today_state()
         rows = st["rows"]
         if slot_idx < 0 or slot_idx >= len(rows):
             return False
         self.p.normalize()
         if st["row_fixed"][slot_idx]:
+            self._push()
             self.p.slot_fixed[slot_idx] = None
         else:
             plan = rows[slot_idx][1]
             if not plan:
                 return False
+            self._push()
             self.p.slot_fixed[slot_idx] = plan
         self.p.normalize()
         return True
 
     def toggle_blocked(self, slot_idx):
-        """拦截滚动：这一格以及往后的所有格子都不参与上滚"""
+        """拦截滚动:这一格以及往后的所有格子都不参与上滚
+
+        v0.16:先 push 历史。
+        """
         st = self.today_state()
         rows = st["rows"]
         if slot_idx < 0 or slot_idx >= len(rows):
             return False
         self.p.normalize()
         if st["row_blocked"][slot_idx]:
+            self._push()
             for j in range(slot_idx, len(rows)):
                 self.p.slot_blocked[j] = None
         else:
+            self._push()
             for j in range(slot_idx, len(rows)):
                 self.p.slot_blocked[j] = rows[j][1] or None
         self.p.normalize()
@@ -459,12 +497,28 @@ class PlanScheduler:
             if not (isinstance(e, (list, tuple)) and len(e) >= 2 and e[1] == plan)
         ]
 
+    def undo(self):
+        """v0.16:整页撤销 —— 把上一次操作的状态恢复。"""
+        return self.p.undo()
+
+    def redo(self):
+        """v0.16:整页重做 —— 恢复一次被 undo 的操作。"""
+        return self.p.redo()
+
+    # 兼容旧 API:v0.9~v0.15 的「撤销今天最近一次完成」(只撤完成,不撤加/退/固定/拦截)
+    # 新栈已经覆盖它,但保留旧入口,免得 test_scroll_v11.py 这种回归测试还得改。
     def can_undo_complete(self):
-        """今天有完成过的就能撤销（过去几天的不能撤）"""
+        """老 API:撤销条件 = 今天有完成过的（不管 history 栈里有什么）。
+
+        新栈里能 undo 任何东西（不只是完成），但旧 API 这个布尔只关心「能不能撤今天最后一次完成」。
+        """
         return len(self.done_today()) > 0
 
     def undo_complete(self):
-        """撤销今天最后一次完成（「仅完成」和「完成并滚动」都算）"""
+        """老 API:只撤今天最近一次完成（保留 v0.9~v0.15 的精确语义）。
+
+        新版 on_undo() 才是通用的 undo —— 它能撤任意动作（不仅是完成）。
+        """
         if not self.can_undo_complete():
             return False
         plan = self.p.archived.pop()
