@@ -33,6 +33,7 @@ app = QApplication.instance() or QApplication(sys.argv)
 from rollingplan import ParentPlan, PlanData
 from calendar_view import (
     PlanCalendarView, build_archive_text, export_archive_text,
+    estimate_days_left, estimate_text,
 )
 from scheduler import PlanScheduler
 
@@ -557,6 +558,63 @@ class TestArchiveExport(unittest.TestCase):
         finally:
             QMessageBox.information = orig
         self.assertEqual(len(calls), 1)
+
+
+class TestEstimateDaysLeft(unittest.TestCase):
+    """v0.23：第三页的「还剩 N 条 ≈ 还要 N 天」（剩余条数 ÷ 每天格数）。"""
+
+    def test_nine_plans_three_slots(self):
+        p = _make_parent(plans=["1"] * 9)          # 9 条 · 每天 3 格
+        self.assertEqual(estimate_days_left(p), (9, 3, 3))
+        self.assertIn("还要 3 天", estimate_text(p))
+
+    def test_rounds_up_partial_day(self):
+        p = _make_parent(plans=["1"] * 9)
+        p.archived.extend(["1"] * 7)               # 剩 2 条 → 1 天（不满也占一天）
+        self.assertEqual(estimate_days_left(p), (2, 3, 1))
+
+    def test_all_done(self):
+        p = _make_parent(plans=["1"] * 4)
+        p.archived.extend(["1"] * 4)
+        self.assertEqual(estimate_days_left(p)[2], 0)
+        self.assertIn("全部完成", estimate_text(p))
+
+    def test_no_plans(self):
+        p = _make_parent(plans=["x"])
+        p.plans = []                # _make_parent 的空列表会被当默认值,所以后置清空
+        p.normalize()
+        self.assertEqual(estimate_days_left(p), (0, 3, 0))
+
+    def test_no_slots_cannot_estimate(self):
+        p = ParentPlan("空时段")
+        p.plans = ["1", "2", "3"]
+        p.time_slots = []
+        p.normalize()
+        remaining, spd, days = estimate_days_left(p)
+        self.assertEqual((remaining, spd), (3, 0))
+        self.assertIsNone(days)
+        self.assertIn("算不出天数", estimate_text(p))
+
+    def test_more_done_than_plans_never_negative(self):
+        p = _make_parent(plans=["1", "2"])
+        p.archived.extend(["1", "2", "3"])          # 脏数据：归档比计划多
+        self.assertEqual(estimate_days_left(p)[0], 0)
+
+    def test_label_and_export_show_estimate(self):
+        p = _make_parent(plans=["1"] * 6)
+        p.archived.extend(["1", "1"])               # 剩 4 条 → 还要 2 天
+        data = PlanData()
+        data.parents = [p]
+        cv = PlanCalendarView(data)
+        self.assertIn("还要 2 天", cv.estimate_label.text())
+        txt = build_archive_text(p, PlanScheduler(p), now_str="X")
+        self.assertIn("估算：还剩 4 条 ≈ 还要 2 天", txt)
+
+    def test_label_empty_without_scheduler(self):
+        cv = PlanCalendarView(PlanData())
+        cv.scheduler = None
+        cv._refresh_view()
+        self.assertEqual(cv.estimate_label.text(), "")
 
 
 if __name__ == "__main__":

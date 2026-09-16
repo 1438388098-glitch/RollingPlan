@@ -64,6 +64,7 @@ def build_archive_text(p, scheduler, now_str=None):
         lines.extend(f"  {i}. {plan}" for i, plan in enumerate(rest, 1))
 
     lines.append("")
+    lines.append(f"估算：{estimate_text(p)}")
     done_today = scheduler.done_today() if scheduler is not None else []
     lines.append("✅ 今天完成：" + ("、".join(done_today) if done_today else "（无）"))
 
@@ -82,6 +83,35 @@ def export_archive_text(path, p, scheduler, now_str=None):
     with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
         f.write(text)
     return path
+
+
+def estimate_days_left(p):
+    """v0.23：按「每天 N 格」估算还要几天（纯函数，方便测）。
+
+    返回 (remaining, slots_per_day, days_left)：
+    - remaining = 还没完成的计划条数（总条数 - 已归档条数，负数收敛成 0）
+    - slots_per_day = 每天的格子数（早/中/晚各 1 就是 3）；0 表示没配时段
+    - days_left = 剩余条数 ÷ 每天格数 向上取整；条数为 0 → 0；没有格 → None（算不出来）
+    """
+    total = len(getattr(p, "plans", []) or [])
+    done = len(getattr(p, "archived", []) or [])
+    remaining = max(0, total - done)
+    spd = sum(s.get("count", 1) for s in (getattr(p, "time_slots", []) or []))
+    if remaining == 0:
+        return remaining, spd, 0
+    if spd <= 0:
+        return remaining, spd, None
+    return remaining, spd, (remaining + spd - 1) // spd
+
+
+def estimate_text(p):
+    """把 estimate_days_left 的结果说成人话（给第三页进度区用）。"""
+    remaining, spd, days_left = estimate_days_left(p)
+    if remaining == 0:
+        return "计划已全部完成 ✓"
+    if days_left is None:
+        return f"还剩 {remaining} 条（还没设时段，算不出天数）"
+    return f"还剩 {remaining} 条 ≈ 还要 {days_left} 天（每天 {spd} 格）"
 
 
 class PlanCalendarView(QWidget):
@@ -138,6 +168,12 @@ class PlanCalendarView(QWidget):
         self.progress_label.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.progress_label.setAlignment(Qt.AlignCenter)
         progress_inner.addWidget(self.progress_label)
+        # v0.23：按「每天 N 格」估算还要几天
+        self.estimate_label = QLabel()
+        self.estimate_label.setFont(QFont("Microsoft YaHei", 11))
+        self.estimate_label.setAlignment(Qt.AlignCenter)
+        self.estimate_label.setWordWrap(True)
+        progress_inner.addWidget(self.estimate_label)
         progress_group.setLayout(progress_inner)
         layout.addWidget(progress_group)
 
@@ -271,12 +307,14 @@ class PlanCalendarView(QWidget):
         """拉一遍 scheduler 数据填进控件。"""
         if self.scheduler is None:
             self.progress_label.setText("（无分类）")
+            self.estimate_label.setText("")
             self.archive_list.clear()
             self.today_label.setText("（无分类）")
             return
         p = self.scheduler.p
         done, total = self.scheduler.get_progress()
         self.progress_label.setText(f"已推进 {done} / 共 {total} 条（{pct(done, total)}）")
+        self.estimate_label.setText(estimate_text(p))
 
         # 归档历史：按天分组 + 倒序（最近的天在最上面）
         self.archive_list.clear()
