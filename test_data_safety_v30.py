@@ -68,6 +68,10 @@ def test_save_keeps_backup():
     make_window()
     s = app_settings()
     ok(s.value("plan_data_backup") is not None, "plan_data_backup 已自动留下")
+    # 第三次 save：backup_2 也应出现（R29 3 代备份环）
+    make_window()
+    s = app_settings()
+    ok(s.value("plan_data_backup_2") is not None, "plan_data_backup_2 已自动留下")
 
 
 def test_corrupt_load_backed_up_and_reported():

@@ -364,10 +364,13 @@ class PlanData:
     def save(self):
         from theme import app_settings
         s = app_settings()
-        # v0.30（审计 P0-1 的保险丝）：写入前把上一代数据留进 plan_data_backup。
-        # 万一新数据写坏/误操作，注册表里永远有上一份可手工找回。
+        # v0.30 R29（审计 P0-1 的保险丝）：3 代备份环。
+        # 每次写入前把上一代数据轮转进 backup 链（backup ← 上一代，_2 ← 上上代…），
+        # 「改错→保存→又改错→保存」也能救回最早一代。
         prev = s.value("plan_data")
         if prev:
+            s.setValue("plan_data_backup_3", s.value("plan_data_backup_2"))
+            s.setValue("plan_data_backup_2", s.value("plan_data_backup"))
             s.setValue("plan_data_backup", prev)
         s.setValue("plan_data", json.dumps(self.to_dict(), ensure_ascii=False))
 
