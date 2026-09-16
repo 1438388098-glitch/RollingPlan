@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox,
     QComboBox, QToolButton, QGroupBox, QApplication,
-    QInputDialog, QFileDialog,
+    QInputDialog, QFileDialog, QDialog, QFormLayout,
 )
 
 from scheduler import PlanScheduler
@@ -45,8 +45,17 @@ class PlanEditor(QWidget):
         layout = QVBoxLayout()
 
         title = QLabel("日常计划管理 — 制定计划")
-        title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
+        title.setObjectName("rpTitle")
         layout.addWidget(title)
+
+        # v0.30：新手引导条（审计 P1-1/P2-1）—— 没计划或没时段时可见，
+        # 配齐后自动消失；不改变任何折叠组的默认收起行为（极简口径不动）
+        self.guide_label = QLabel(
+            "三步开始：① 在「计划清单」添加要做的事 → ② 在「时段」划分一天 → ③ 点「开始执行」"
+        )
+        self.guide_label.setObjectName("rpDim")
+        self.guide_label.setWordWrap(True)
+        layout.addWidget(self.guide_label)
 
         # ============ 主题（常驻）+ 其余收进「⋯」（v0.27b 瘦身）============
         io_row = QHBoxLayout()
@@ -215,6 +224,7 @@ class PlanEditor(QWidget):
         slot_row = QHBoxLayout()
         self.slot_name_input = QLineEdit()
         self.slot_name_input.setPlaceholderText("时段名（早 / 中 / 晚……）")
+        self.slot_name_input.returnPressed.connect(self.add_slot)   # v0.30：回车即添加
         slot_row.addWidget(self.slot_name_input)
 
         self.slot_count_input = QSpinBox()
@@ -411,6 +421,18 @@ class PlanEditor(QWidget):
 
         self.scheduler = PlanScheduler(cp)
 
+        # v0.30：配齐计划+时段后引导条退场
+        self.guide_label.setVisible(not (cp.plans and cp.time_slots))
+
+    def _reveal(self, toggle, body, input_widget=None):
+        """v0.30：校验失败时展开对应折叠组并聚焦输入框（审计 P1-8）。"""
+        if not toggle.isChecked():
+            toggle.setChecked(True)
+            toggle.setText(toggle.text().replace("▸", "▾", 1))
+        animations.toggle_section(body, True)
+        if input_widget is not None:
+            input_widget.setFocus()
+
     def add_plan(self):
         text = self.plan_input.text().strip()
         if text:
@@ -477,11 +499,14 @@ class PlanEditor(QWidget):
             QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。\n完成今天后再来调整吧。")
             return
         slot = self.data.current_parent.time_slots[cur]
-        new_name, ok = QInputDialog.getText(self, "编辑时段", "新名称:", text=slot["name"])
-        if ok and new_name.strip():
-            new_count, ok2 = QInputDialog.getInt(self, "编辑时段", "新数量:", value=slot.get("count", 1), min=1, max=10)
-            if ok2:
-                self.data.current_parent.time_slots[cur] = {"name": new_name, "count": new_count}
+        # v0.30：一个表单搞定名字+数量（审计 P1-4：不再连弹两个框）
+        dlg = _SlotEditDialog(self, slot["name"], slot.get("count", 1))
+        if dlg.exec_() == QDialog.Accepted:
+            name = dlg.name_edit.text().strip()
+            if name:
+                self.data.current_parent.time_slots[cur] = {
+                    "name": name, "count": dlg.count_spin.value(),
+                }
                 self.refresh_all()
                 self.data.save()
 
@@ -657,11 +682,15 @@ class PlanEditor(QWidget):
         self.scheduler = PlanScheduler(self.data.current_parent)
         p = self.data.current_parent
         if not p.plans:
-            QMessageBox.warning(self, "提示", "请先添加计划内容")
+            QMessageBox.warning(self, "提示", "请先在「计划清单」添加要做的事")
+            self._reveal(self._plan_toggle, self._plan_body, self.plan_input)
             return
         if not p.time_slots:
-            QMessageBox.warning(self, "提示", "请先添加时段")
+            QMessageBox.warning(self, "提示", "请先在「时段」划分一天")
+            self._reveal(self._slot_toggle, self._slot_body, self.slot_name_input)
             return
+        self._reveal(self._plan_toggle, self._plan_body)      # 保险：都齐了才走到这
+        self._reveal(self._slot_toggle, self._slot_body)
         cal = self.scheduler.raw_calendar()
         lines = [f"📅 【{p.name}】计划预览（共 {len(cal)} 天）", "=" * 40]
         for i, (d, plans) in enumerate(cal):
@@ -676,10 +705,58 @@ class PlanEditor(QWidget):
     def go_exec(self):
         cp = self.data.current_parent
         if not cp.plans or not cp.time_slots or not cp.start_date:
-            QMessageBox.warning(self, "提示", "请先完成：\n  • 计划清单（添加要做的事）\n  • 时段（一天分几段）\n  • 起始日期（哪天开始）")
+            missing = []
+            if not cp.plans:
+                missing.append("计划清单（添加要做的事）")
+            if not cp.time_slots:
+                missing.append("时段（一天分几段）")
+            if not cp.start_date:
+                missing.append("起始日期（哪天开始）")
+            QMessageBox.warning(self, "提示", "还差这些就能开始：\n  • " + "\n  • ".join(missing))
+            if not cp.plans:
+                self._reveal(self._plan_toggle, self._plan_body, self.plan_input)
+            elif not cp.time_slots:
+                self._reveal(self._slot_toggle, self._slot_body, self.slot_name_input)
             return
         self.save_current_to_parent()
         self.data.save()
         self.on_switch_to_exec()
 
 
+
+
+class _SlotEditDialog(QDialog):
+    """v0.30：时段编辑单表单（名字 + 数量一个框搞定，替代两个 QInputDialog 串联）。"""
+
+    def __init__(self, parent, name="", count=1):
+        super().__init__(parent)
+        self.setWindowTitle("编辑时段")
+        self.setMinimumWidth(280)
+        form = QFormLayout(self)
+        form.setSpacing(10)
+
+        self.name_edit = QLineEdit(name)
+        self.name_edit.setPlaceholderText("早 / 中 / 晚……")
+        form.addRow("时段名", self.name_edit)
+
+        self.count_spin = QSpinBox()
+        self.count_spin.setRange(1, 10)
+        self.count_spin.setValue(count)
+        self.count_spin.setPrefix("每天 ")
+        self.count_spin.setSuffix(" 次")
+        form.addRow("数量", self.count_spin)
+
+        btns = QHBoxLayout()
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn = QPushButton("确定")
+        ok_btn.setObjectName("rpPrimary")
+        ok_btn.clicked.connect(self.accept)
+        btns.addStretch(1)
+        btns.addWidget(cancel_btn)
+        btns.addWidget(ok_btn)
+        form.addRow(btns)
+
+        self.name_edit.setFocus()
+        self.name_edit.selectAll()
+        self.name_edit.returnPressed.connect(self.accept)
