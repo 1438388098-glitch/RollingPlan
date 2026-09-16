@@ -687,7 +687,9 @@ class PlanEditor(QWidget):
 
         ok, msg, stats = self.data.import_from_file(path)
         if not ok:
-            QMessageBox.warning(self, "导入失败", msg)
+            QMessageBox.warning(
+                self, "导入失败",
+                "这个文件可能不是 RollingPlan 导出的备份文件。\n\n技术细节：" + msg)
             return
 
         # 校验失败分支已返回；此处 stats 必非 None

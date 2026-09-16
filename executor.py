@@ -174,7 +174,7 @@ class PlanExecutor(QWidget):
         sub_row = QHBoxLayout()
         self.return_btn = QPushButton("⤴ 退回")
         self.return_btn.setToolTip(
-            "旧「退回」入口已由「撤销」统一取代（撤销同样能撤完成/退额外轮）。保留对象给老测试。")
+            "旧「退回」入口已由「撤销」统一取代（撤销同样能撤完成/退额外安排）。保留对象给老测试。")
         self.return_btn.clicked.connect(self.on_return)
         self.return_btn.setVisible(False)   # v0.30 R17（审计 P1-3）：不再作为 UI 入口
         self.return_btn.setParent(self.advanced_container)
@@ -841,11 +841,11 @@ class ExtraArrangementsDialog(QDialog):
         promoted = self.promoted_positions(st)
 
         if st["extras_frozen"]:
-            self.hint.setText("今天有格子按了「拦截滚动」—— 额外轮是当天最后的时间栏，"
-                              "也在拦截范围里，腾出来的位置不由它候补。")
+            self.hint.setText("今天有格子按了「拦截滚动」—— 拦截期间额外安排不参与候补，"
+                              "空出来的位置会保持空白。")
         else:
-            self.hint.setText("额外轮 = 当天额外的时间栏。额外加进来的计划在这里按顺序候补，"
-                              "前面格子完成并滚动时才会顶上来。")
+            self.hint.setText("这里是你额外加进今天的计划。前面格子的计划完成并滚动后，"
+                              "它们会按顺序自动补进空格。")
 
         if not borrowed:
             lbl = QLabel("还没有额外安排")

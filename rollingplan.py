@@ -304,9 +304,9 @@ class ParentPlan:
         if n_arc_now < n_arc_then:
             return "撤销完成"
         if n_extra_now > n_extra_then:
-            return "添加额外轮"
+            return "添加额外安排"
         if n_extra_now < n_extra_then:
-            return "退回额外轮"
+            return "退回额外安排"
         return "修改"
 
 
@@ -567,6 +567,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.editor, "✏️ 制定计划")
         self.tabs.addTab(self.executor, "▶ 执行计划")
         self.tabs.addTab(self.calendar_view, "📊 归档总览")
+        # v0.30（审计 P2-4）：两个主题下拉互相同步（都在构造时读 QSettings，
+        # 之后一边切换另一边不知道）——信号互连 + blockSignals 防递归
+        self.executor.theme_combo.currentIndexChanged.connect(
+            self._sync_theme_combos)
+        self.editor.theme_combo.currentIndexChanged.connect(
+            self._sync_theme_combos)
         # 第三页激活时也要能刷新（用户在第三页时执行页可能完成了一条）
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -575,6 +581,15 @@ class MainWindow(QMainWindow):
         for _i in range(3):
             QShortcut(QKeySequence("Ctrl+{}".format(_i + 1)), self,
                       lambda idx=_i: self.tabs.setCurrentIndex(idx))
+
+    def _sync_theme_combos(self, idx):
+        """v0.30：把主题下拉的选择同步到另一页的下拉（不触发重复应用）。"""
+        source = self.sender()
+        target = self.editor.theme_combo if source is self.executor.theme_combo \
+            else self.executor.theme_combo
+        target.blockSignals(True)
+        target.setCurrentIndex(idx)
+        target.blockSignals(False)
 
     def _on_tab_changed(self, idx):
         """切页时刷新目标页 —— 用户可能在前一页改了数据。

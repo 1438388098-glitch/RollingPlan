@@ -241,7 +241,8 @@ class TestHistoryLabel(unittest.TestCase):
         p = _make_parent()
         s = PlanScheduler(p)
         s.borrow_next()
-        self.assertIn("额外轮", p.history_top_label())
+        # v0.30 R18 术语统一：UI 术语「额外轮」收敛为「额外安排」
+        self.assertIn("额外安排", p.history_top_label())
 
     def test_label_return(self):
         p = _make_parent()
