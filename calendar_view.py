@@ -268,7 +268,7 @@ class PlanCalendarView(QWidget):
         self.more_toggle.setText("⋯")
         self.more_toggle.setCheckable(True)
         self.more_toggle.setChecked(False)
-        self.more_toggle.setStyleSheet("QToolButton { border: none; }")
+        self.more_toggle.setObjectName("rpFold")
         self.more_toggle.setToolTip("导出归档 / 全部展开·收起")
         self.more_toggle.clicked.connect(self._on_toggle_more)
         top_row.addWidget(self.more_toggle)

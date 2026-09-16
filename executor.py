@@ -54,7 +54,7 @@ class PlanExecutor(QWidget):
         self.advanced_toggle.setText("更多")
         self.advanced_toggle.setCheckable(True)
         self.advanced_toggle.setChecked(False)
-        self.advanced_toggle.setStyleSheet("QToolButton { border: none; }")
+        self.advanced_toggle.setObjectName("rpFold")
         self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.advanced_toggle.setArrowType(Qt.RightArrow)
         self.advanced_toggle.clicked.connect(self._toggle_advanced)
@@ -137,10 +137,7 @@ class PlanExecutor(QWidget):
         self.extra_btn.setFont(QFont("Microsoft YaHei", 11))
         self.extra_btn.setMinimumHeight(30)
         self.extra_btn.setMaximumHeight(34)
-        self.extra_btn.setStyleSheet(
-            "QPushButton { border: 1px solid #999; border-radius: 5px; padding: 4px; }"
-            "QPushButton:hover { background-color: rgba(33,150,243,0.15); }"
-        )
+        self.extra_btn.setObjectName("rpGhostOutline")
         self.extra_btn.setCursor(Qt.PointingHandCursor)
         self.extra_btn.clicked.connect(self.on_show_extras)
         self._extra_btn_was_visible = False   # v0.29：追踪出现时机（0 → N 条时给浮现动效）
@@ -152,7 +149,7 @@ class PlanExecutor(QWidget):
 
         self.add_next_btn = QPushButton("➕ 加一个")
         self.add_next_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
-        self.add_next_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 14px; border-radius: 6px;")
+        self.add_next_btn.setObjectName("rpPrimary")
         self.add_next_btn.setMinimumHeight(50)
         self.add_next_btn.setToolTip("从还没安排的队列里顺延一条  (Ctrl+Enter)")
         self.add_next_btn.clicked.connect(self.on_add_next)
@@ -160,7 +157,7 @@ class PlanExecutor(QWidget):
 
         self.done_btn = QPushButton("✓ 今天完成")
         self.done_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
-        self.done_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 14px; border-radius: 6px;")
+        self.done_btn.setObjectName("rpSuccess")
         self.done_btn.setMinimumHeight(50)
         self.done_btn.setToolTip("确认今天的安排全部结束,进入下一天  (Ctrl+D)")
         self.done_btn.clicked.connect(self.on_next_day)
@@ -194,7 +191,7 @@ class PlanExecutor(QWidget):
         self.redo_btn.setVisible(False)
         sub_row.addWidget(self.redo_btn)
         self.add_specific_btn = QPushButton("⋯ 添加指定")
-        self.add_specific_btn.setStyleSheet("color: #666;")
+        self.add_specific_btn.setObjectName("rpGhost")
         self.add_specific_btn.clicked.connect(self.on_add_specific)
         sub_row.addWidget(self.add_specific_btn)
         sub_row.addStretch()
@@ -208,7 +205,7 @@ class PlanExecutor(QWidget):
         self.queue_toggle.setText("计划队列")
         self.queue_toggle.setCheckable(True)
         self.queue_toggle.setChecked(False)
-        self.queue_toggle.setStyleSheet("QToolButton { border: none; color: #888; }")
+        self.queue_toggle.setObjectName("rpFold")
         self.queue_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.queue_toggle.setArrowType(Qt.RightArrow)
         self.queue_toggle.setCursor(Qt.PointingHandCursor)
@@ -269,7 +266,7 @@ class PlanExecutor(QWidget):
         # 老格式:逗号分隔的那一行（保留兼容老测试和老用户阅读习惯）
         note_label = QLabel("  归档：" + "、".join(note))
         note_label.setFont(QFont("Microsoft YaHei", 10))
-        note_label.setStyleSheet("color: #888;")
+        note_label.setObjectName("rpDim")
         parent_layout.addWidget(note_label)
 
         # 新加:可点击的小开关 —— 默认收起,点了在下面插入详情
@@ -279,11 +276,7 @@ class PlanExecutor(QWidget):
         toggle.setChecked(False)
         toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
         toggle.setFont(QFont("Microsoft YaHei", 10))
-        toggle.setStyleSheet(
-            "QToolButton { border: 1px solid #888; border-radius: 3px; "
-            "color: #888; padding: 0 6px; background: transparent; }"
-            "QToolButton:checked { background: #888; color: white; }"
-        )
+        toggle.setObjectName("rpFold")
         toggle.setCursor(Qt.PointingHandCursor)
         toggle.setToolTip("展开/收起归档详情")
         toggle.toggled.connect(lambda checked, n=note, t=toggle, p=parent_layout:
@@ -316,7 +309,7 @@ class PlanExecutor(QWidget):
                 for i, plan in enumerate(note, 1):
                     line = QLabel(f"  {i}. {plan}")
                     line.setFont(QFont("Microsoft YaHei", 10))
-                    line.setStyleSheet("color: #666;")
+                    line.setObjectName("rpDim")
                     detail_layout.addWidget(line)
                 # 插在 stretch 之前
                 stretch_idx = -1
@@ -350,8 +343,6 @@ class PlanExecutor(QWidget):
         - 额外轮的行不带时段名 —— 时段只是当天承装计划的栏位
         """
         row = QHBoxLayout()
-        bg = "#E8F5E9" if is_extra else None
-        border_color = "#2E7D32" if is_extra else "#1E88E5"
 
         if is_extra:
             slot_label = QLabel("⤴")
@@ -367,12 +358,12 @@ class PlanExecutor(QWidget):
             plan_label = QLabel(f"✓ {plan}" if done else plan)
             plan_label.setFont(QFont("Microsoft YaHei", 16))
             if done:
-                # 灰 + 删除线。用中性灰（#888）而不是主题色 —— 深浅主题下都看得见
-                plan_label.setStyleSheet("color: #888; text-decoration: line-through;")
+                # v0.30：颜色走全局 QSS 的语义角色（深浅主题都可读）
+                plan_label.setObjectName("rpDone")
         else:
             plan_label = QLabel("(无)")
             plan_label.setFont(QFont("Microsoft YaHei", 14))
-            plan_label.setStyleSheet("font-style: italic;")
+            plan_label.setObjectName("rpEmpty")
         row.addWidget(plan_label)
 
         # 这一格的归档备注（v0.19：可点击展开/收起 —— 单击切换详情面板）
@@ -422,12 +413,7 @@ class PlanExecutor(QWidget):
             # 完成并滚动：这一格唯一常驻的按钮（归档 + 后面的上滚一格）
             scroll_btn = QPushButton("✓ 完成并滚动")
             scroll_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
-            scroll_btn.setStyleSheet(
-                "QPushButton { background-color: #4CAF50; color: white; "
-                "padding: 6px 12px; border-radius: 4px; }"
-                "QPushButton:hover { background-color: #43A047; }"
-                "QPushButton:pressed { background-color: #388E3C; }"
-            )
+            scroll_btn.setObjectName("rpSuccessSm")
             scroll_btn.setCursor(Qt.PointingHandCursor)
             # v0.26b：告诉用户「别的操作在右键里」，避免藏得太死
             extras_hint = []
@@ -440,8 +426,9 @@ class PlanExecutor(QWidget):
             row.addWidget(scroll_btn)
 
         container = QWidget()
-        if bg:
-            container.setStyleSheet(f"background-color: {bg}; border-left: 3px solid {border_color}; padding-left: 4px;")
+        if is_extra:
+            # v0.30：浅绿底改语义卡片（全局 QSS 双主题各自出正确配色）
+            container.setObjectName("rpExtraCard")
         cl = QHBoxLayout(container)
         cl.setContentsMargins(6, 2, 6, 2)
         cl.addLayout(row)
@@ -754,7 +741,7 @@ class ExtraArrangementsDialog(QDialog):
 
         self.hint = QLabel()
         self.hint.setWordWrap(True)
-        self.hint.setStyleSheet("color: #666;")
+        self.hint.setObjectName("rpDim")
         outer.addWidget(self.hint)
 
         self.list_layout = QVBoxLayout()
@@ -828,7 +815,7 @@ class ExtraArrangementsDialog(QDialog):
         if not borrowed:
             lbl = QLabel("还没有额外安排")
             lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet("font-style: italic;")
+            lbl.setObjectName("rpEmpty")
             self.list_layout.addWidget(lbl)
         else:
             for i, plan in enumerate(borrowed, 1):
@@ -840,7 +827,7 @@ class ExtraArrangementsDialog(QDialog):
                     tag = QLabel(f"（已滚入今天的第 {promoted[plan]} 格）")
                 else:
                     tag = QLabel("（候补中）")
-                tag.setStyleSheet("color: #888;")
+                tag.setObjectName("rpDim")
                 row.addWidget(tag)
                 row.addStretch(1)
                 del_btn = QPushButton("🗑 删除该安排")
