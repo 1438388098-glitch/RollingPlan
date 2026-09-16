@@ -185,7 +185,8 @@ class PlanEditor(QWidget):
         plan_layout = QVBoxLayout()
 
         self.plan_list = QListWidget()
-        self.plan_list.setMaximumHeight(160)
+        self.plan_list.setMinimumHeight(160)
+        self.plan_list.setMaximumHeight(240)
         plan_layout.addWidget(self.plan_list)
 
         edit_row = QHBoxLayout()
@@ -227,7 +228,8 @@ class PlanEditor(QWidget):
         slot_layout = QVBoxLayout()
 
         self.slot_list = QListWidget()
-        self.slot_list.setMaximumHeight(120)
+        self.slot_list.setMinimumHeight(120)
+        self.slot_list.setMaximumHeight(180)
         slot_layout.addWidget(self.slot_list)
 
         slot_row = QHBoxLayout()
@@ -432,6 +434,13 @@ class PlanEditor(QWidget):
         cp = self.data.current_parent
         self.parent_name_label.setText(f"正在编辑：{cp.name}")
 
+        # v0.30 R26（审计 P2-14）：重建列表前记住选中行和滚动位置，重建后还原，
+        # 连续编辑（添加/上移/下移）时界面不再跳回顶部
+        plan_cur = self.plan_list.currentRow()
+        plan_scroll = self.plan_list.verticalScrollBar().value()
+        slot_cur = self.slot_list.currentRow()
+        slot_scroll = self.slot_list.verticalScrollBar().value()
+
         # 计划
         self.plan_list.clear()
         for i, plan in enumerate(cp.plans):
@@ -444,6 +453,14 @@ class PlanEditor(QWidget):
             if slot.get("count", 1) > 1:
                 disp += f" ×{slot['count']}"
             self.slot_list.addItem(f"{i+1}. {disp}")
+
+        # 还原选中与滚动位置
+        if 0 <= plan_cur < self.plan_list.count():
+            self.plan_list.setCurrentRow(plan_cur)
+            self.plan_list.verticalScrollBar().setValue(plan_scroll)
+        if 0 <= slot_cur < self.slot_list.count():
+            self.slot_list.setCurrentRow(slot_cur)
+            self.slot_list.verticalScrollBar().setValue(slot_scroll)
 
         if cp.start_date:
             self.date_edit.setDate(cp.start_date)
