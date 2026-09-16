@@ -176,8 +176,11 @@ def test_restore_backup_roundtrip():
 
     orig_q = QMessageBox.question
     orig_i = QMessageBox.information
+    orig_get = QInputDialog.getItem
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
     QMessageBox.information = staticmethod(lambda *a, **k: None)
+    # 第二次恢复时已有多代备份 → 会弹「恢复到哪一步」选择框，桩成选第 0 项（最近）
+    QInputDialog.getItem = staticmethod(lambda *a, **k: (a[3][0], True))
     try:
         win.editor.on_restore_backup()
         app.processEvents()
@@ -188,6 +191,7 @@ def test_restore_backup_roundtrip():
     finally:
         QMessageBox.question = orig_q
         QMessageBox.information = orig_i
+        QInputDialog.getItem = orig_get
 
     ok("任务3" not in after1 and after1 == ["任务1", "任务2"], "恢复后：数据回到上一次保存前")
     ok(win.executor.scheduler.p is win.data.current_parent, "恢复后：executor 绑定同步")

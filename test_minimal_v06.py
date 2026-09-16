@@ -444,8 +444,9 @@ def test_editor_main_actions_still_visible_v027b():
     print("\n=== test_editor_main_actions_still_visible_v027b ===")
     ed = PlanEditor(make_data(), lambda: None)
     _show(ed)
-    # 主操作（生成计划 / 开始执行）留在外面，不被折叠
-    assert_visible(_find_btn(ed, "生成计划"), "「生成计划」常驻")
+    # 主操作（保存并预览 / 开始执行）留在外面，不被折叠
+    # （v0.30 R32：「生成计划」更名「保存并预览」，主样式让给「开始执行 →」）
+    assert_visible(_find_btn(ed, "保存并预览"), "「保存并预览」常驻")
     assert_visible(_find_btn(ed, "开始执行 →"), "「开始执行 →」常驻")
     assert_not_visible(_find_btn(ed, "预览"), "「预览」已收进「⋯」")
     # 四个组（分类/计划/时段/日期）默认都是收起的

@@ -315,7 +315,6 @@ class PlanCalendarView(QWidget):
         archive_group = QGroupBox("🗂 归档历史")
         archive_inner = QVBoxLayout()
         self.archive_list = QListWidget()
-        self.archive_list.setFont(QFont("Microsoft YaHei", 12))
         self.archive_list.itemClicked.connect(self._on_archive_clicked)
         archive_inner.addWidget(self.archive_list)
         archive_group.setLayout(archive_inner)

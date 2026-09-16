@@ -134,7 +134,6 @@ class PlanExecutor(QWidget):
         self.extra_btn.setObjectName("rpGhostOutline")
         self.extra_btn.setMinimumHeight(30)
         self.extra_btn.setMaximumHeight(34)
-        self.extra_btn.setObjectName("rpGhostOutline")
         self.extra_btn.setCursor(Qt.PointingHandCursor)
         self.extra_btn.clicked.connect(self.on_show_extras)
         self._extra_btn_was_visible = False   # v0.29：追踪出现时机（0 → N 条时给浮现动效）
@@ -151,10 +150,10 @@ class PlanExecutor(QWidget):
         self.add_next_btn.clicked.connect(self.on_add_next)
         action_row.addWidget(self.add_next_btn)
 
-        self.done_btn = QPushButton("✓ 今天完成")
+        self.done_btn = QPushButton("⏭ 结束今天 →")
         self.done_btn.setObjectName("rpSuccess")
         self.done_btn.setMinimumHeight(52)
-        self.done_btn.setToolTip("确认今天的安排全部结束,进入下一天  (Ctrl+D)")
+        self.done_btn.setToolTip("今天到此为止，进入下一天（未完成的会提醒）  (Ctrl+D)\n想完成某一格，请点那张卡片上的「✓ 完成并滚动」")
         self.done_btn.clicked.connect(self.on_next_day)
         action_row.addWidget(self.done_btn)
 
@@ -266,7 +265,6 @@ class PlanExecutor(QWidget):
         toggle.setCheckable(True)
         toggle.setChecked(False)
         toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        toggle.setFont(QFont("Microsoft YaHei", 10))
         toggle.setObjectName("rpFold")
         toggle.setCursor(Qt.PointingHandCursor)
         toggle.setToolTip("展开/收起归档详情")
@@ -848,7 +846,6 @@ class ExtraArrangementsDialog(QDialog):
             for i, plan in enumerate(borrowed, 1):
                 row = QHBoxLayout()
                 name = QLabel(f"{i}. {plan}")
-                name.setFont(QFont("Microsoft YaHei", 12))
                 row.addWidget(name)
                 if plan in promoted:
                     tag = QLabel(f"（已滚入今天的第 {promoted[plan]} 格）")

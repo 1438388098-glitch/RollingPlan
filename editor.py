@@ -53,7 +53,7 @@ class PlanEditor(QWidget):
         # v0.30：新手引导条（审计 P1-1/P2-1）—— 没计划或没时段时可见，
         # 配齐后自动消失；不改变任何折叠组的默认收起行为（极简口径不动）
         self.guide_label = QLabel(
-            "三步开始：① 在「计划清单」添加要做的事 → ② 在「时段」划分一天 → ③ 点「开始执行」"
+            "三步开始：① 点开「▸ 计划清单」添加要做的事 → ② 点开「▸ 时段」划分一天 → ③ 点「开始执行」"
         )
         self.guide_label.setObjectName("rpDim")
         self.guide_label.setWordWrap(True)
@@ -160,6 +160,8 @@ class PlanEditor(QWidget):
             ("↓ 下移", self.on_parent_down),
         ]:
             btn = QPushButton(text)
+            if text.startswith("删除"):
+                btn.setObjectName("rpDangerGhost")   # v0.30 R32：危险操作视觉区分
             btn.clicked.connect(cb)
             pg_btn_col.addWidget(btn)
         pg_btn_col.addStretch()
@@ -207,6 +209,8 @@ class PlanEditor(QWidget):
             ("↓", self.plan_down),
         ]:
             btn = QPushButton(text)
+            if text == "删除":
+                btn.setObjectName("rpDangerGhost")
             btn.clicked.connect(cb)
             edit_row.addWidget(btn)
 
@@ -260,6 +264,8 @@ class PlanEditor(QWidget):
             ("↓", self.slot_down),
         ]:
             btn = QPushButton(text)
+            if text == "删除":
+                btn.setObjectName("rpDangerGhost")
             btn.clicked.connect(cb)
             slot_row.addWidget(btn)
 
@@ -294,12 +300,12 @@ class PlanEditor(QWidget):
 
         # ============ 操作 ============
         btn_row = QHBoxLayout()
-        save_btn = QPushButton("生成计划")
-        save_btn.setObjectName("rpPrimary")
+        save_btn = QPushButton("保存并预览")
         save_btn.clicked.connect(self.save_and_preview)
         btn_row.addWidget(save_btn)
 
         go_exec = QPushButton("开始执行 →")
+        go_exec.setObjectName("rpPrimary")
         go_exec.clicked.connect(self.go_exec)
         btn_row.addWidget(go_exec)
 
@@ -666,7 +672,26 @@ class PlanEditor(QWidget):
         import json as _json
         from theme import app_settings
         s = app_settings()
-        backup = s.value("plan_data_backup")
+        # v0.30 R31：与 3 代备份环配套 —— 让用户选恢复哪一代
+        gens = [
+            ("上一次保存前（最近备份）", "plan_data_backup"),
+            ("上上次保存前", "plan_data_backup_2"),
+            ("第三次保存前", "plan_data_backup_3"),
+        ]
+        available = [(label, key) for label, key in gens if s.value(key)]
+        if not available:
+            QMessageBox.information(
+                self, "恢复备份", "还没有可用的备份（备份在第一次保存之后才会生成）。")
+            return
+        backup = None
+        if len(available) == 1:
+            backup = s.value(available[0][1])
+        else:
+            sel, ok = QInputDialog.getItem(
+                self, "恢复备份", "恢复到哪一步？", [label for label, _ in available], 0, False)
+            if not ok:
+                return
+            backup = s.value(dict(available)[sel])
         if not backup:
             QMessageBox.information(
                 self, "恢复备份", "还没有可用的备份（备份在第一次保存之后才会生成）。")
