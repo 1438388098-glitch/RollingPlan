@@ -215,6 +215,10 @@ python3 ~/.hermes/skills/auto-iterate-project/scripts/autopilot_state.py init --
   补救：`commit --round <N>`（允许 orphan commit）再核对 `git log` / `git status`。
   **别把 autopilot 命令的输出用 `| tail -N` 截断**，报错行常在最前面，截没了就看不见。
 - **headless 测过 ≠ 验收过**：颜色 / 字号 / 布局 / 手感只能证明「不崩、属性对不对」，必须真机看一眼。
+- **副本里的 mtime 就是「编辑时间」**（`sync_to_task.sh` 用 `cp -pf` 保留源文件 mtime）。
+  判断 exe 新不新，直接比 `dist/RollingPlan.exe` 和副本 `*.py` 的 mtime：exe 更新 = 产物不陈旧。
+  （踩过：早先用 `cp -f`，同步会把源码 mtime 刷成「复制时刻」，看上去比 exe 还新，白白怀疑 exe 是旧的。
+  真判断只看**内容哈希** —— `git hash-object` 两边一致才是硬证据。）
 - **「启动 exe / 关掉进程」这类动作会被安全策略拦**：我试过用 PowerShell 启动 exe + 12 秒后查进程 +
   `Stop-Process`，被判定需要用户确认而拦下（`taskkill /F` 同理）。要么请用户放行，要么直接让用户
   双击 `D:\0-task\rollingplan\dist\RollingPlan.exe`。**别换着写法反复试**。

@@ -22,7 +22,9 @@ bad=0
 for src in "$ROOT"/*.py "$ROOT"/STATE.md "$ROOT"/README.md "$ROOT"/run_all_tests.sh; do
   [ -f "$src" ] || continue
   name="$(basename "$src")"
-  cp -f "$src" "$TASK_DIR/$name"
+  # -p：保留源文件的 mtime（编辑时间），别让「复制时间」冒充「修改时间」——
+  # 否则副本里源码的时间戳会比 dist/*.exe 还新，看着像 exe 陈旧（2026-09-16 踩过）
+  cp -pf "$src" "$TASK_DIR/$name"
   a="$(git hash-object "$src")"
   b="$(git hash-object "$TASK_DIR/$name")"
   if [ "$a" = "$b" ]; then
