@@ -234,6 +234,72 @@ def test_executor_theme_combo_change_writes_qsettings():
             break
 
 
+def _find_btn(w, text):
+    """按文字找按钮（v0.26 用：次要入口没有属性名了）"""
+    from PyQt5.QtWidgets import QPushButton
+    for b in w.findChildren(QPushButton):
+        if b.text() == text:
+            return b
+    return None
+
+
+# ============== v0.26 执行页顶端极简 ==============
+
+
+def test_executor_top_bar_minimal_v026():
+    print("\n=== test_executor_top_bar_minimal_v026 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    # 顶栏默认只剩两个东西：「更多」+ 分类名
+    assert_true(ex.advanced_toggle.isVisible(), "「更多」常驻可见")
+    assert_true(ex.parent_combo_label.isVisible(), "分类名常驻可见")
+    # 原来的次要入口全部收起
+    assert_not_visible(ex.parent_switch_btn, "「切换分类」默认收起")
+    assert_not_visible(ex.theme_combo, "主题下拉默认收起")
+    assert_not_visible(_find_btn(ex, "← 返回制定"), "「返回制定」默认收起")
+
+
+def test_executor_status_line_merged_v026():
+    print("\n=== test_executor_status_line_merged_v026 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    # 三行（日期/进度/今天完成）→ 两行（日期 + 一行状态）
+    assert_true(hasattr(ex, "status_label"), "status_label 存在")
+    assert_true(not hasattr(ex, "progress_label"), "旧 progress_label 已删掉")
+    assert_true(not hasattr(ex, "done_label"), "旧 done_label 已删掉")
+    text = ex.status_label.text()
+    assert_true("进度" in text and "/" in text, f"状态行含进度：{text!r}")
+    assert_true("今天完成" in text, f"状态行含今天完成：{text!r}")
+
+
+def test_executor_more_reveals_minor_entries_v026():
+    print("\n=== test_executor_more_reveals_minor_entries_v026 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    ex.advanced_toggle.click()
+    app.processEvents()
+    assert_visible(ex.parent_switch_btn, "展开后「切换分类」可见")
+    assert_visible(ex.theme_combo, "展开后主题下拉可见")
+    assert_visible(_find_btn(ex, "← 返回制定"), "展开后「返回制定」可见")
+
+
+def test_executor_today_done_goes_to_tooltip_v026():
+    print("\n=== test_executor_today_done_goes_to_tooltip_v026 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    # 什么都没完成时：0 条、tooltip 为空
+    assert_true("今天完成 0 条" in ex.status_label.text(),
+                f"空态：{ex.status_label.text()!r}")
+    assert_eq(ex.status_label.toolTip(), "", "空态 tooltip 为空")
+    # 完成一格（早1：A）→ 状态行计数 +1，内容进 tooltip 而不占版面
+    ex.scheduler.complete_today_slot(0)
+    ex.refresh()
+    app.processEvents()
+    assert_true("今天完成 1 条" in ex.status_label.text(),
+                f"完成后：{ex.status_label.text()!r}")
+    assert_true("A" in ex.status_label.toolTip(), f"tooltip 含已完成内容：{ex.status_label.toolTip()!r}")
+
+
 def main():
     test_editor_three_toggles_exist()
     test_editor_toggles_initially_collapsed()
@@ -244,6 +310,10 @@ def main():
     test_executor_advanced_toggle_expands()
     test_executor_theme_combo_exists()
     test_executor_theme_combo_change_writes_qsettings()
+    test_executor_top_bar_minimal_v026()
+    test_executor_status_line_merged_v026()
+    test_executor_more_reveals_minor_entries_v026()
+    test_executor_today_done_goes_to_tooltip_v026()
     print(f"\n=== ALL TESTS PASSED ({PASS_COUNT} assertions) ===")
 
 

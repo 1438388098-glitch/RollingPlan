@@ -43,15 +43,43 @@ class PlanExecutor(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(20, 16, 20, 16)
 
-        # ============ 顶部：分类 + 主题 + 返回（次要行）============
+        # ============ 顶部：极简一行（v0.26）============
+        # 默认只留「⌄ 更多」+ 当前分类名。切换分类 / 主题 / 返回制定 全部收进「更多」里
+        # （用户反馈：顶栏一排控件 + 三行居中文字太杂乱，分散注意力）
         top_row = QHBoxLayout()
-        self.parent_combo_label = QLabel()
-        self.parent_combo_label.setFont(QFont("Microsoft YaHei", 11))
-        top_row.addWidget(self.parent_combo_label)
-        self.parent_switch_btn = QPushButton("切换")
-        self.parent_switch_btn.clicked.connect(self.on_switch_parent)
-        top_row.addWidget(self.parent_switch_btn)
+        top_row.setSpacing(6)
+
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setText("更多")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setChecked(False)
+        self.advanced_toggle.setStyleSheet("QToolButton { border: none; }")
+        self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.advanced_toggle.setArrowType(Qt.RightArrow)
+        self.advanced_toggle.clicked.connect(self._toggle_advanced)
+        top_row.addWidget(self.advanced_toggle)
+
         top_row.addStretch()
+
+        # 当前分类名（小字、灰色：够认就行，不抢版面）
+        self.parent_combo_label = QLabel()
+        self.parent_combo_label.setFont(QFont("Microsoft YaHei", 9))
+        top_row.addWidget(self.parent_combo_label)
+        layout.addLayout(top_row)
+
+        # ============ 折叠区（默认收起，跟着「更多」走）============
+        self.advanced_container = QWidget()
+        adv_layout = QVBoxLayout(self.advanced_container)
+        adv_layout.setContentsMargins(0, 4, 0, 0)
+        adv_layout.setSpacing(8)
+
+        # v0.26：原来常驻顶栏的三个入口挪进来
+        minor_row = QHBoxLayout()
+        minor_row.setSpacing(8)
+
+        self.parent_switch_btn = QPushButton("切换分类")
+        self.parent_switch_btn.clicked.connect(self.on_switch_parent)
+        minor_row.addWidget(self.parent_switch_btn)
 
         # 主题下拉（执行页也方便切）
         from rollingplan import THEME_OPTIONS
@@ -66,31 +94,30 @@ class PlanExecutor(QWidget):
                 self.theme_combo.setCurrentIndex(i)
                 break
         self.theme_combo.currentIndexChanged.connect(self.on_theme_changed)
-        top_row.addWidget(QLabel("主题:"))
-        top_row.addWidget(self.theme_combo)
+        minor_row.addWidget(QLabel("主题:"))
+        minor_row.addWidget(self.theme_combo)
 
         edit_btn = QPushButton("← 返回制定")
         edit_btn.clicked.connect(self.on_switch_to_edit)
-        top_row.addWidget(edit_btn)
-        layout.addLayout(top_row)
+        minor_row.addWidget(edit_btn)
 
-        # ============ 日期 + 进度（中等字号）============
+        minor_row.addStretch()
+        adv_layout.addLayout(minor_row)
+
+        layout.addWidget(self.advanced_container)
+
+        # ============ 日期 + 状态（v0.26：三行合并成两行）============
+        # 主标题（日期）保留大字号；「进度」「今天已完成」合并成一行小字
         self.date_label = QLabel()
         self.date_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
         self.date_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.date_label)
 
-        self.progress_label = QLabel()
-        self.progress_label.setAlignment(Qt.AlignCenter)
-        self.progress_label.setFont(QFont("Microsoft YaHei", 13))
+        self.status_label = QLabel()
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFont(QFont("Microsoft YaHei", 11))
         # 不设 inline color — QSS 接管（dark 下浅灰、light 下深色都能看见）
-        layout.addWidget(self.progress_label)
-
-        # v0.9: 今天已完成（归档）了的计划
-        self.done_label = QLabel()
-        self.done_label.setAlignment(Qt.AlignCenter)
-        self.done_label.setFont(QFont("Microsoft YaHei", 11))
-        layout.addWidget(self.done_label)
+        layout.addWidget(self.status_label)
 
         # ============ 今天：冷调主区 ============
         # 时段少时居中显示，时段多时自然撑开
@@ -137,21 +164,8 @@ class PlanExecutor(QWidget):
 
         layout.addLayout(action_row)
 
-        # ============ 次要操作：折叠区（默认收起）============
-        self.advanced_toggle = QToolButton()
-        self.advanced_toggle.setText("更多")
-        self.advanced_toggle.setCheckable(True)
-        self.advanced_toggle.setChecked(False)
-        self.advanced_toggle.setStyleSheet("QToolButton { border: none; }")
-        self.advanced_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.advanced_toggle.setArrowType(Qt.DownArrow)
-        self.advanced_toggle.clicked.connect(self._toggle_advanced)
-        layout.addWidget(self.advanced_toggle)
-
-        self.advanced_container = QWidget()
-        adv_layout = QVBoxLayout(self.advanced_container)
-        adv_layout.setContentsMargins(0, 4, 0, 0)
-        adv_layout.setSpacing(8)
+        # ============ 次要操作：统一收在顶部那个「更多」折叠区里（v0.26）============
+        adv_layout = self.advanced_container.layout()
 
         # 次要按钮行（v0.16）：
         # - return_btn = 老「退回」按钮（仅撤今天完成 / 退额外轮最后一条；旧行为不变）
@@ -196,7 +210,6 @@ class PlanExecutor(QWidget):
         adv_layout.addWidget(cal_group)
 
         self.advanced_container.setVisible(False)
-        layout.addWidget(self.advanced_container)
 
         self.setLayout(layout)
 
@@ -419,14 +432,13 @@ class PlanExecutor(QWidget):
             self.date_label.setText(f"📅 第 {p.current_day+1} 天 ({cd.toString('yyyy-MM-dd ddd')})")
 
         consumed, total = self.scheduler.get_progress()
-        self.progress_label.setText(f"进度：{consumed} / {total}")
-
-        # 今天已完成（归档）
         done_today = self.scheduler.done_today()
+        # v0.26：进度 + 今天完成 合成一行（今天完成了什么挪进 tooltip，不占版面）
+        self.status_label.setText(f"进度 {consumed}/{total} · 今天完成 {len(done_today)} 条")
         if done_today:
-            self.done_label.setText("🗂 今天已完成：" + "、".join(done_today))
+            self.status_label.setToolTip("🗂 今天已完成：" + "、".join(done_today))
         else:
-            self.done_label.setText("")
+            self.status_label.setToolTip("")
 
         # 今天
         st = self.scheduler.today_state()
