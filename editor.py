@@ -348,7 +348,11 @@ class PlanEditor(QWidget):
         if len(self.data.parents) <= 1:
             QMessageBox.warning(self, "提示", "至少保留一个分类")
             return
-        reply = QMessageBox.question(self, "确认", f"删除分类「{self.data.parents[idx].name}」？")
+        reply = QMessageBox.question(
+            self, "确认删除",
+            "删除分类「{}」？\n\n该分类的计划、进度、归档将一并删除，且无法撤销。".format(
+                self.data.parents[idx].name),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.data.remove_parent(idx)
             self.scheduler = PlanScheduler(self.data.current_parent)
@@ -621,7 +625,7 @@ class PlanEditor(QWidget):
             f"  • 额外安排：{borrowed_n} 条 → 清空\n\n"
             f"计划内容、时段、起始日期不变。\n"
             f"确认重置？",
-        )
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
 
@@ -694,7 +698,7 @@ class PlanEditor(QWidget):
             f"  • 计划总数：{s_plans}\n"
             f"  • 当前未完成的额外安排：{s_borrowed}\n\n"
             f"确认导入？此操作会覆盖现有数据。",
-        )
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm != QMessageBox.Yes:
             # 取消：恢复导入前的内存状态（不碰磁盘），并同步三个页面的对象绑定
             self.data.from_dict(snapshot)
