@@ -44,6 +44,7 @@ class PlanEditor(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout()
+        layout.setContentsMargins(24, 20, 24, 20)
 
         title = QLabel("日常计划管理 — 制定计划")
         title.setObjectName("rpTitle")
@@ -133,7 +134,7 @@ class PlanEditor(QWidget):
         self._parent_body = QWidget()
         pg_outer = QVBoxLayout(self._parent_body)
         self.parent_name_label = QLabel()
-        self.parent_name_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+        self.parent_name_label.setObjectName("rpSlotName")
         pg_outer.addWidget(self.parent_name_label)
         pg_layout = QHBoxLayout()
 
@@ -280,7 +281,7 @@ class PlanEditor(QWidget):
         # ============ 操作 ============
         btn_row = QHBoxLayout()
         save_btn = QPushButton("生成计划")
-        save_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
+        save_btn.setObjectName("rpPrimary")
         save_btn.clicked.connect(self.save_and_preview)
         btn_row.addWidget(save_btn)
 
@@ -783,7 +784,8 @@ class _SlotEditDialog(QDialog):
         self.setWindowTitle("编辑时段")
         self.setMinimumWidth(280)
         form = QFormLayout(self)
-        form.setSpacing(10)
+        form.setSpacing(12)
+        form.setContentsMargins(20, 16, 20, 16)
 
         self.name_edit = QLineEdit(name)
         self.name_edit.setPlaceholderText("早 / 中 / 晚……")

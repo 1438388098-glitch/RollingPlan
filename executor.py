@@ -48,7 +48,7 @@ class PlanExecutor(QWidget):
         # ============ 顶部：极简一行（v0.26，v0.30 换语义角色）============
         # 默认只留「⌄ 更多」+ 当前分类名。切换分类 / 主题 / 返回制定 全部收进「更多」里
         top_row = QHBoxLayout()
-        top_row.setSpacing(6)
+        top_row.setSpacing(8)
 
         self.advanced_toggle = QToolButton()
         self.advanced_toggle.setText("更多")
@@ -64,8 +64,7 @@ class PlanExecutor(QWidget):
 
         # 当前分类名（小字：够认就行，不抢版面）
         self.parent_combo_label = QLabel()
-        self.parent_combo_label.setFont(QFont("Microsoft YaHei", 9))
-        self.parent_combo_label.setObjectName("rpDim")
+        self.parent_combo_label.setObjectName("rpSmall")
         top_row.addWidget(self.parent_combo_label)
         layout.addLayout(top_row)
 
@@ -123,7 +122,7 @@ class PlanExecutor(QWidget):
 
         # ============ 今天：卡片化主区 ============
         self.day_layout = QVBoxLayout()
-        self.day_layout.setSpacing(10)
+        self.day_layout.setSpacing(12)
         self.day_layout.setAlignment(Qt.AlignCenter)  # 内容垂直居中
         day_container = QWidget()
         day_container.setLayout(self.day_layout)
@@ -133,7 +132,7 @@ class PlanExecutor(QWidget):
         # ============ 额外安排：细长条按钮（在两大按钮上方）============
         # 长度与「加一个 + 今天完成」的总长相当，但矮一些 —— 点开是当天额外安排列表
         self.extra_btn = QPushButton("📋 额外安排（0）")
-        self.extra_btn.setFont(QFont("Microsoft YaHei", 11))
+        self.extra_btn.setObjectName("rpGhostOutline")
         self.extra_btn.setMinimumHeight(30)
         self.extra_btn.setMaximumHeight(34)
         self.extra_btn.setObjectName("rpGhostOutline")
@@ -147,7 +146,6 @@ class PlanExecutor(QWidget):
         action_row.setSpacing(12)
 
         self.add_next_btn = QPushButton("➕ 加一个")
-        self.add_next_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.add_next_btn.setObjectName("rpPrimary")
         self.add_next_btn.setMinimumHeight(52)
         self.add_next_btn.setToolTip("从还没安排的队列里顺延一条  (Ctrl+Enter)")
@@ -155,7 +153,6 @@ class PlanExecutor(QWidget):
         action_row.addWidget(self.add_next_btn)
 
         self.done_btn = QPushButton("✓ 今天完成")
-        self.done_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.done_btn.setObjectName("rpSuccess")
         self.done_btn.setMinimumHeight(52)
         self.done_btn.setToolTip("确认今天的安排全部结束,进入下一天  (Ctrl+D)")
@@ -261,8 +258,7 @@ class PlanExecutor(QWidget):
         """
         # 老格式:逗号分隔的那一行（保留兼容老测试和老用户阅读习惯）
         note_label = QLabel("  归档：" + "、".join(note))
-        note_label.setFont(QFont("Microsoft YaHei", 10))
-        note_label.setObjectName("rpDim")
+        note_label.setObjectName("rpSmall")
         parent_layout.addWidget(note_label)
 
         # 新加:可点击的小开关 —— 默认收起,点了在下面插入详情
@@ -301,11 +297,10 @@ class PlanExecutor(QWidget):
                 detail_widget.setObjectName("rp-note-detail")
                 detail_layout = QVBoxLayout(detail_widget)
                 detail_layout.setContentsMargins(60, 0, 0, 0)
-                detail_layout.setSpacing(2)
+                detail_layout.setSpacing(4)
                 for i, plan in enumerate(note, 1):
                     line = QLabel(f"  {i}. {plan}")
-                    line.setFont(QFont("Microsoft YaHei", 10))
-                    line.setObjectName("rpDim")
+                    line.setObjectName("rpSmall")
                     detail_layout.addWidget(line)
                 # 插在 stretch 之前
                 stretch_idx = -1
@@ -337,7 +332,7 @@ class PlanExecutor(QWidget):
         - note：这一格的归档备注（已完成过的内容），行尾小灰字可展开
         """
         row = QHBoxLayout()
-        row.setSpacing(10)
+        row.setSpacing(8)
 
         if is_extra:
             slot_label = QLabel("⤴")
@@ -346,19 +341,16 @@ class PlanExecutor(QWidget):
             mark = "⛔" if blocked else ("📌" if fixed else "")
             slot_label = QLabel(f"{mark}{slot_name}")
             slot_label.setMinimumWidth(48)
-        slot_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
-        slot_label.setObjectName("rpDim")
+        slot_label.setObjectName("rpSlotName")
         row.addWidget(slot_label)
 
         if plan:
             plan_label = QLabel(f"✓ {plan}" if done else plan)
-            plan_label.setFont(QFont("Microsoft YaHei", 14))
             if done:
                 # 灰 + 删除线走 QSS 语义角色（深浅主题都可读）
                 plan_label.setObjectName("rpDone")
         else:
             plan_label = QLabel("(无)")
-            plan_label.setFont(QFont("Microsoft YaHei", 12))
             plan_label.setObjectName("rpEmpty")
         row.addWidget(plan_label)
 
@@ -375,15 +367,9 @@ class PlanExecutor(QWidget):
                 ("拦截滚动", bool(blocked), self.on_toggle_blocked),
             ):
                 toggle_btn = QPushButton(text)
-                toggle_btn.setFont(QFont("Microsoft YaHei", 9))
                 toggle_btn.setCheckable(True)
                 toggle_btn.setChecked(checked)
-                toggle_btn.setStyleSheet(
-                    "QPushButton { border: 1px solid #888; border-radius: 3px; "
-                    "padding: 3px 8px; }"
-                    "QPushButton:checked { background-color: #2196F3; color: white; "
-                    "border: 1px solid #1976D2; }"
-                )
+                toggle_btn.setObjectName("rpGhost")
                 toggle_btn.setCursor(Qt.PointingHandCursor)
                 toggle_btn.clicked.connect(
                     lambda checked=False, idx=slot_idx, h=handler: h(idx))
@@ -393,11 +379,7 @@ class PlanExecutor(QWidget):
         if show_complete and plan and slot_idx is not None:
             # v0.26b：仅完成 也在菜单里
             only_btn = QPushButton("仅完成")
-            only_btn.setFont(QFont("Microsoft YaHei", 11))
-            only_btn.setStyleSheet(
-                "QPushButton { border: 1px solid #888; border-radius: 4px; "
-                "padding: 6px 12px; }"
-            )
+            only_btn.setObjectName("rpGhost")
             only_btn.setEnabled(not done)
             if not done:
                 only_btn.setCursor(Qt.PointingHandCursor)
@@ -408,7 +390,6 @@ class PlanExecutor(QWidget):
 
             # 完成并滚动：这一格唯一常驻的 QPushButton
             scroll_btn = QPushButton("✓ 完成并滚动")
-            scroll_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Bold))
             scroll_btn.setObjectName("rpSuccessSm")
             scroll_btn.setCursor(Qt.PointingHandCursor)
             # v0.26b：告诉用户「别的操作在右键/⋯里」
@@ -428,7 +409,6 @@ class PlanExecutor(QWidget):
             menu_btn = QToolButton()
             menu_btn.setText("⋯")
             menu_btn.setObjectName("rpGhost")
-            menu_btn.setFont(QFont("Microsoft YaHei", 13))
             menu_btn.setCursor(Qt.PointingHandCursor)
             menu_btn.setToolTip("更多操作：仅完成 / 固定计划 / 拦截滚动")
             menu_btn.clicked.connect(
@@ -773,6 +753,7 @@ class ExtraArrangementsDialog(QDialog):
 
         outer = QVBoxLayout(self)
         outer.setSpacing(8)
+        outer.setContentsMargins(20, 16, 20, 16)
 
         self.hint = QLabel()
         self.hint.setWordWrap(True)

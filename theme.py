@@ -167,6 +167,8 @@ QLabel {
 QLabel#rpTitle { font-size: 17pt; font-weight: bold; color: $text_strong; }
 QLabel#rpH2 { font-size: 14pt; font-weight: bold; color: $text_strong; }
 QLabel#rpDim { color: $text_dim; }
+QLabel#rpSmall { font-size: 11pt; color: $text_dim; }
+QLabel#rpSlotName { font-size: 13pt; font-weight: bold; color: $text_dim; }
 QLabel#rpFaint { color: $text_faint; }
 QLabel#rpDone { color: $text_faint; text-decoration: line-through; }
 QLabel#rpEmpty { color: $text_faint; font-style: italic; }
@@ -218,6 +220,7 @@ QPushButton#rpPrimary {
     background-color: $accent;
     color: $on_accent;
     border: 1px solid $accent;
+    font-size: 14pt;
     font-weight: bold;
 }
 QPushButton#rpPrimary:hover { background-color: $accent_hover; border-color: $accent_hover; }
@@ -226,6 +229,7 @@ QPushButton#rpSuccess {
     background-color: $success;
     color: $on_accent;
     border: 1px solid $success;
+    font-size: 14pt;
     font-weight: bold;
 }
 QPushButton#rpSuccess:hover { background-color: $success_hover; border-color: $success_hover; }
