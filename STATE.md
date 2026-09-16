@@ -1,9 +1,10 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-16 19:35
+> **最后更新**：2026-09-16 19:45
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **代码最新在**：`main`（HEAD = `a698b64`，已 push 到 origin/main）—— v0.13~v0.25 全在上面，不用去别的分支找
+> **代码最新在**：`main`（HEAD = `d3b156d`，已 push 到 origin/main）—— v0.13~v0.25 全在上面，不用去别的分支找
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
+> **现在处在哪一步**：v0.25 代码 + 测试 + 推送**都做完了**；**只剩「真机验收」这一件没做**（见下）
 
 ## 项目一句话
 
@@ -62,7 +63,7 @@ git push origin main        # 没配 credential.helper，git 会自己读 ~/.net
 
 v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成并滚动 / 队列模型）见 git 历史里 `main` 的提交。
 
-## 文件与行数（v0.22）
+## 文件与行数（v0.25）
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
@@ -114,14 +115,16 @@ bash sync_to_task.sh         # 只覆盖 *.py / STATE.md / README.md / run_all_t
 
 ## 构建（exe）
 
-WSL 侧直接调 Windows 的 Python 打包（已验证可用：Windows Python 3.13 + PyInstaller 6.22.3）：
+WSL 侧直接调 Windows 的 Python 打包（已验证可用：Windows Python 3.13.14 + PyQt5 5.15.2 + PyInstaller 6.22.3）：
 
 ```bash
-cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --onefile --windowed --name RollingPlan --distpath dist --workpath build --specpath . rollingplan.py"
+cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --noconfirm --onefile \
+  --windowed --name RollingPlan --distpath dist --workpath build --specpath . rollingplan.py"
 ```
 
-或 Windows 上双击 `build_windows.bat`。
-**`dist/RollingPlan.exe` 还是 v0.12 的**（2026-09-15 23:24，37,868,119 字节）—— v0.13~v0.22 的东西都没进 exe。
+或 Windows 上双击 `build_windows.bat`（会先装依赖）。
+**`dist/RollingPlan.exe` 已经是 v0.25 的**（2026-09-16 19:30 重打，37,866,847 字节；旧的 v0.12 exe 已删）。
+⚠️ 这个 exe **还没人启动验证过**（想验但被安全策略拦了），下次改完代码要重新打包。
 
 ## 文件关键路径（WSL 视角）
 
@@ -129,15 +132,46 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 |------|------|
 | Git 仓库 | `/mnt/d/0_git/RollingPlan/` |
 | 验收副本 | `/mnt/d/0-task/rollingplan/` |
-| Python venv | `/mnt/d/0-task/rollingplan/.venv/`（PyQt5 5.15.11） |
-| 测试脚本 | `/mnt/d/0-task/rollingplan/run_all_tests.sh` |
+| Python venv（WSL 用） | `/mnt/d/0-task/rollingplan/.venv/`（PyQt5 5.15.11，Linux venv；Windows 上别用） |
+| 测试脚本 | 仓库根 `run_all_tests.sh`（验收副本里是同一份） |
+| 打包产物 | `/mnt/d/0-task/rollingplan/dist/RollingPlan.exe`（v0.25，2026-09-16 19:30） |
 
 源码 / 测试每次改完都 `cp -f` 到验收副本（两边应当逐字节一致，可用 `git hash-object` 比对）。
 
+## 迭代进度（autopilot 运行记录）
+
+代码是分四轮「自我迭代」跑出来的（skill：`auto-iterate-project`，每轮 3~5 个候选、一次一个、
+提交前跑全量测试）：
+
+| 轮次 | 分支（已合进 main） | 产出 | 轮数 |
+|------|--------------------|------|------|
+| iter-1 | `autopilot/283447bffad0` | v0.13 快捷键 / v0.13 回归测试 / v0.14 抽 theme.py | 3 |
+| iter-2 | `autopilot/2c7bffb2db41` | v0.15~v0.19（抽 scheduler / 撤销栈 / 抽 editor / 归档总览页 / 备注可展开） | 5 |
+| iter-2b | `autopilot/65dba054e425` | v0.20~v0.22（修 redo 未绑 / 抽 executor / 归档按天分组） | 3 |
+| iter-3 | `autopilot/a1f32a7e7932` | v0.22b（切天可撤销 / 归档导出 / 测试脚本进仓库） | 3 |
+| iter-4 | `autopilot/348240aadc58` | v0.23~v0.25（剩余天数估算 / 按天折叠 / 全部分类汇总 / 文件名清洗 / README） | 5 |
+
+每个 run 的状态留在仓库的 `.autopilot/`（`state.json` / `backlog.json` / `retrospective.md` /
+`last-summary.md`；未跟踪、不推远端）。**下一轮要开新 run**：
+
+```bash
+cd /mnt/d/0_git/RollingPlan        # 对着 main 开跑（分支已合并，不用再接力旧链）
+python3 ~/.hermes/skills/auto-iterate-project/scripts/autopilot_state.py init --repo $PWD --force \
+  --max-rounds 3 --max-minutes 150 --branch-mode feature \
+  --check-commands "$PWD/run_all_tests.sh" --commit-message-prefix iter-5 \
+  --candidates-per-round 1 --commit-every-rounds 1 --verify-every-rounds 1 --report-lang zh
+# 然后 backlog-add 补候选（旧候选基本都用完了）→ backlog-rank → begin-round → 干活 → commit → complete-round
+```
+
+`backlog.json` 里还剩 1 个没做的候选：**candidate-020 归档 / 持久化的跨天链路回归测试**
+（「多天完成 → 切天 → 撤销 → 重做 → 导出 → JSON 往返」的端到端链路）。
+
 ## 接下来该做什么
 
-1. **第一优先：真机验收 + 重新打包。** v0.13~v0.22b（七页 UI 改动里第三页是全新的、还有快捷键和撤销栈）
-   **一次都没在真机跑过**，这轮迭代全是 headless 验证。要看的点：
+1. **只剩这一件：真机验收（v0.13~v0.25 都没在真机跑过，全是 headless 验证）**。
+   副本和 exe 都已经准备好：`D:\0-task\rollingplan\dist\RollingPlan.exe`（**v0.25，2026-09-16 19:30 重打的**，
+   37,866,847 字节；旧的 v0.12 exe 已删），或者 `cd /d D:\0-task\rollingplan && python rollingplan.py`
+   （Windows Python 3.13.14 + PyQt5 5.15.2 已装好）。要看的点：
    - 第三页「归档总览」的排版（进度 / 按天分组的归档历史 / 今天完成 + 时段备注）宽窄合不合适；
      **深色主题下分隔标题的对比度**（v0.22 起标题色取自调色板半透明，不再写死灰 `#555`）；
    - 「⬇ 导出归档」按钮的位置 + 导出的 .txt 用 Windows 记事本打开有没有乱码（写的是 UTF-8 带 BOM）；
@@ -147,18 +181,18 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
    - 下拉切到「（全部分类）」时的排版（每个分类一块 + 最近 3 条归档）够不够看（v0.24）；
    - 进度区那行「还剩 N 条 ≈ 还要 N 天」的措辞 / 字号（v0.23）；
    - Ctrl+Enter / Ctrl+D / Ctrl+Z / Ctrl+Shift+Z 在真机输入法下会不会被吃掉；
-   - 每格 4 个按钮挤不挤（v0.12 就留着没确认）。
-   验完把结论写回本文件的验收行，再重新打包 exe。
-2. ~~把 `run_all_tests.sh` 收进 git 仓库~~ ✅ 已做（v0.22b：仓库根 `run_all_tests.sh` + `sync_to_task.sh`，
-   两个脚本都自测过失败路径）。
-3. **`main` 合并**：✅ 已做（ff 合并 + push 到 origin/main，tip `a698b64`）。
-4. 还没做的方向（按价值排）：
+   - 每格 4 个按钮挤不挤（v0.12 就留着没确认）；
+   - **exe 能不能正常打开这一条还没人验过**（我试着启动 + 查进程被安全策略拦了，见「备忘」）。
+   验完把结论写回本文件的验收行（v0.25 已含全部改动，不需要再单独打包；下次改了代码才要重打）。
+2. ✅ 已做：`run_all_tests.sh` / `sync_to_task.sh` 进仓库；`main` ff 合并 + push（tip `d3b156d`）；
+   README 更新到 v0.25；仓库与验收副本逐文件哈希一致。
+3. 还没做的方向（按价值排）：
    - **布局重设计**（执行页只显示「今天 + 加一个 / 今天完成」）
    - **今日模式**（把「今天」单独做一页）
    - 清理 `borrow_slot()` / `available_borrow_names()`（v0.3~v0.8 的按时段名旧入口，UI 已不用，
      留着只为旧调用和 `test_v2_2` 回归）
-   - ~~README 版本表~~ ✅ v0.25 已更新
-5. **待用户确认的语义**（提过没定的）：
+   - candidate-020 那条跨天链路回归测试
+4. **待用户确认的语义**（提过没定的）：
    - 「固定计划」是否允许后面的计划**越过**它去填前面的空位（现语义：允许 → 早1中2晚3 固定中、滚早 → 早3 中2 晚空）
    - 「直接拉取」是否要指定拉进今天某个具体时间栏（现语义：列表里一个按钮，按顺序拉下一条）
 
@@ -166,6 +200,22 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 
 - WSL 没 Qt 显示，验证 GUI 只能 `QT_QPA_PLATFORM=offscreen` 跑 headless。
 - **headless 测过 ≠ 验收过**：颜色 / 字号 / 布局 / 手感只能证明「不崩、属性对不对」，必须真机看一眼。
+- **「启动 exe / 关掉进程」这类动作会被安全策略拦**：我试过用 PowerShell 启动 exe + 12 秒后查进程 +
+  `Stop-Process`，被判定需要用户确认而拦下（`taskkill /F` 同理）。要么请用户放行，要么直接让用户
+  双击 `D:\0-task\rollingplan\dist\RollingPlan.exe`。**别换着写法反复试**。
+- **Windows 侧打包环境（2026-09-16 实测）**：`python` = 3.13.14 + PyQt5 5.15.2 + PyInstaller 6.22.3，
+  打包命令（`--noconfirm` 别省，省了会卡在交互确认上）：
+  ```bash
+  cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --noconfirm --onefile \
+    --windowed --name RollingPlan --distpath dist --workpath build --specpath . rollingplan.py"
+  ```
+  删旧 exe / build 缓存要用 **Windows 侧** `cmd.exe /c "del /f /q ... & rmdir /s /q ..."`（WSL 删 30MB+ 的
+  DrvFS 文件会报 I/O error）。打包前先 `python C:\...\Temp\rp_check_modules.py` 那种小脚本验一下
+  副本源码在 Windows 上能 import（我这次就是这么验的；临时脚本在 Windows Temp 里，可删）。
+- **副本里的 `.venv` 是 WSL 的 Linux venv**（python 3.11.16 clang），**Windows 上跑源码别用它**，
+  用系统 `python`（PyQt5 已装）。
+- **工具输出会把 `PASS=<数字>` 掩码成 `PASS=***`**（像是被当成密码赋值了）→ 统计断言数时从落盘的
+  `/tmp/rollingplan-test-*.log` 里解析，别读工具栏里的字面值。
 - **QSS 与 widget 级 inline stylesheet**：widget 级优先。**文字色绝对不要写在 widget 级 stylesheet 里**
   （v0.8 暗色黑字事故）。要跟主题走的颜色用 `self.palette().color(...)`（v0.22 的分组标题就是这么做的）。
 - **v0.9 数据模型**：计划是队列，时段只是当天的栏位。别再把「时段名」当计划的属性。
