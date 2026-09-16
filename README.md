@@ -4,7 +4,26 @@
 
 ## 版本
 
-### v0.12（当前）
+### v0.13 → v0.25（当前 v0.25）
+
+| 版本 | 内容 |
+|------|------|
+| v0.13 | **快捷键**：Ctrl+Enter 加一个 / Ctrl+D 今天完成 / Ctrl+Z 撤销；补 v0.9 队列模型边界回归测试 |
+| v0.14 | 抽出 `theme.py`（QSS + `apply_theme`），零行为变化 |
+| v0.15 | 抽出 `scheduler.py`（`PlanScheduler` —— 队列 / 当天行 / 完成 / 滚动的算法都在这里） |
+| v0.16 | **撤销栈**：`push_history()` / `undo()` / `redo()`，可撤任意最近动作（加 / 退 / 完成 / 固定 / 拦截），上限 50 |
+| v0.17 | 抽出 `editor.py`（`PlanEditor` 制定计划页） |
+| v0.18 | **第三页「📊 归档总览」**：进度 / 归档历史 / 今天完成 + 各时段归档备注 |
+| v0.19 | 归档备注可点击展开（▸ / ▾） |
+| v0.20 | 修 bug：Ctrl+Shift+Z / Ctrl+Y 只在注释和 tooltip 里写着，代码一直没绑重做 |
+| v0.21 | 抽出 `executor.py`（`PlanExecutor` + `ExtraArrangementsDialog`） |
+| v0.22 | **归档历史按天分组**：`ParentPlan.daily_boundaries`，分隔标题「📅 第 N 天（X 条）」 |
+| v0.22b | **切天可撤销**（Ctrl+Z 退回前一天，连带每格状态 / 额外轮 / 归档分界）；**「⬇ 导出归档」**写成 .txt；`run_all_tests.sh` + `sync_to_task.sh` 进仓库 |
+| v0.23 | 第三页显示「**还剩 N 条 ≈ 还要 N 天**」；归档历史按天**折叠**（默认只展开最近一天 + 「全部展开 / 收起」按钮） |
+| v0.24 | 第三页下拉加「**（全部分类）**」汇总（合计进度 + 估算 + 每个分类一块：进度 / 最近 3 条归档 / 今天完成）；导出支持一次写出全部分类 |
+| v0.25 | 导出默认文件名清洗 Windows 非法字符（`safe_filename`，含 CON / NUL.txt 之类保留名） |
+
+### v0.12
 - **额外轮 = 当天额外的时间栏**：额外加进来的子计划在额外轮里按顺序候补。
   真时间栏按了「拦截滚动」之后，**额外轮也在拦截范围里** —— 腾出来的位置不再由它候补
   - 早1 中2 晚3 + 额外轮4，拦截「中」，点「早 → 完成并滚动」→ 早空 ⛔中2 ⛔晚3，**4 留在额外轮**
@@ -152,6 +171,12 @@
   或从这一格起拦截滚动（这一格及往后都不上滚）
 - **时段只是栏位**：时段名只表示「当天第几格」，不代表计划本身；额外轮里的计划不带时段名
 - **主题**：暗色 / 亮色 / 跟随系统，自写 QSS，实时切换并跨会话记住
+- **快捷键**（执行页专用）：Ctrl+Enter 加一个 / Ctrl+D 今天完成 / Ctrl+Z 撤销 / Ctrl+Shift+Z（或 Ctrl+Y）重做
+- **撤销 / 重做栈**：加一个、退回、仅完成、完成并滚动、固定、拦截、**切天**都能撤，最多 50 步
+- **第三页「📊 归档总览」**：进度 + 「还剩 N 条 ≈ 还要 N 天」估算 + 归档历史（按天分组、可折叠）+
+  今天完成 + 各时段归档备注；下拉可切单个分类，也可以选「（全部分类）」看全局
+- **「⬇ 导出归档」**：把归档写成 .txt（按天分组 + 今天完成 + 时段备注 + 估算）；
+  在「（全部分类）」下会把所有分类拼成一个文件
 - **数据存储**：使用 QSettings 嵌入式保存
 
 ## 使用
@@ -176,7 +201,7 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 
 ## 核心逻辑
 
-见 `PlanScheduler` 类（`rollingplan.py`）：
+见 `scheduler.py` 的 `PlanScheduler`：
 - `pending()`：待办队列（`plans` 去掉已完成的）
 - `today_state()`：今天的行 / 每格是否已完成 / 归档备注 / 额外轮 / 队列走到哪，一次算清
 - `get_day_plans(day_index)`：取第 N 天的显示切片
@@ -192,29 +217,55 @@ pyinstaller --onefile --windowed --name RollingPlan rollingplan.py
 - `return_last_borrowed()`：退回额外轮最后一个
 - `get_progress()`：进度（已推进 / 总数，完成的也算）
 - `all_consumed()`：判断全部完成
+- `undo()` / `redo()`：走 `ParentPlan` 的撤销栈（v0.16）
+
+其它模块：
+- `rollingplan.py`：`ParentPlan` / `PlanData` / `MainWindow`（+ 撤销栈、`daily_boundaries` 收敛）
+- `executor.py`：`PlanExecutor`（执行页）、`ExtraArrangementsDialog`（额外安排列表）
+- `editor.py`：`PlanEditor`（制定计划页）
+- `calendar_view.py`：`PlanCalendarView`（归档总览页）+ 纯函数
+  `build_archive_text` / `build_all_archive_text` / `estimate_days_left` / `summarize_all` / `safe_filename`
+- `theme.py`：三套 QSS + `apply_theme`
 
 ## 测试
 
+全部 headless（`QT_QPA_PLATFORM=offscreen`）：
+
 ```bash
-python test_v2_2.py                 # v0.3 核心逻辑（33 断言）
-python test_import_export_v04.py    # v0.4 导入/导出（49 断言）
-python test_reset_v04.py            # v0.4 重置进度（24 断言）
-python test_theme_v05.py            # v0.7 QSS 主题（38 断言）
-python test_minimal_v06.py          # v0.6 极简 UI 折叠（32 断言）
-python test_scroll_v11.py           # v0.9~v0.12 只完成/完成并滚动/固定/拦截/额外安排列表（165 断言）
+cd /mnt/d/0_git/RollingPlan
+bash run_all_tests.sh        # 退出码 0 = 全过 / 1 = 有失败 / 2 = 环境不对（找不到带 PyQt5 的 python）
 ```
 
-共 6 个文件 / 341 断言，全过。
+脚本自己挑解释器（`ROLLINGPLAN_PYTHON` > 本目录 `.venv` > 验收副本 `.venv` > 系统 python），
+每个文件的完整输出落在 `/tmp/rollingplan-test-<文件名>.log`。
+
+| 测试文件 | 规模 | 覆盖 |
+|----------|------|------|
+| `test_v2_2.py` | 33 断言 | v0.3 核心逻辑（借指定 / 链式借 / 退回 / 多分类独立） |
+| `test_import_export_v04.py` | 49 断言 | v0.4 导入 / 导出 + 结构校验 + 旧格式兼容 |
+| `test_reset_v04.py` | 24 断言 | v0.4 重置进度 |
+| `test_theme_v05.py` | 38 断言 | v0.7 QSS 主题 + QSettings 持久化 |
+| `test_minimal_v06.py` | 32 断言 | v0.6 极简 UI 折叠 |
+| `test_scroll_v11.py` | 170 断言 | v0.9~v0.12 滚动语义全量 |
+| `test_regression_v13.py` | 41 断言 | v0.9 队列模型回归 |
+| `test_undo_v16.py` | 30 用例 | v0.16 撤销栈 + v0.22b 切天可撤销 |
+| `test_calendar_v18.py` | 73 用例 | v0.18 归档总览 + v0.22 按天分组 + v0.22b 导出 + v0.23 估算 / 折叠 + v0.24 全部分类 + v0.25 文件名清洗 |
+| `test_note_v19.py` | 8 用例 | v0.19 归档备注展开 |
+| `test_keyboard_v20.py` | 5 用例 | v0.13 + v0.20 快捷键 |
+
+共 11 个文件 / 387 条自计数断言 + 116 个 unittest 用例，0 失败。
+
+改完代码同步到验收副本（会逐文件核对哈希）：
+
+```bash
+bash sync_to_task.sh         # *.py / STATE.md / README.md / run_all_tests.sh → D:\0-task\rollingplan
+```
 
 覆盖：
-- 单母计划 + 借指定时间段
-- 链式借（借完明天同名，自动借后天）
-- 同时间段 count>1 时借的边界
-- 多母计划独立
-- 导入/导出 round-trip
-- JSON 结构校验失败处理（语法错/缺字段/类型错/版本不匹配）
-- 旧格式向后兼容
-- 重置进度保留 plans/time_slots/start_date
-- 多分类隔离（只重置当前分类）
+- 单母计划 + 借指定时间段 / 链式借 / 同时间段 count>1 的边界
+- 多母计划独立、导入导出 round-trip、JSON 结构校验失败处理、旧格式向后兼容
+- 重置进度保留 plans/time_slots/start_date；多分类隔离
 - 三主题切换 + QSettings 持久化
+- v0.9~v0.12 的全部滚动语义（仅完成 / 完成并滚动 / 固定 / 拦截 / 额外安排列表）
+- v0.16~v0.25：撤销栈（含切天）/ 快捷键 / 归档总览（按天分组、折叠、导出、全部分类、估算、文件名清洗）
 - 冷调极简 UI：折叠分组 + 时段居中 + 大按钮
