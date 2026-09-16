@@ -105,6 +105,7 @@ class PlanExecutor(QWidget):
         adv_layout.addLayout(minor_row)
 
         layout.addWidget(self.advanced_container)
+        self.advanced_container.setVisible(False)   # 默认收起：默认视图只有「更多」
 
         # ============ 日期 + 状态（v0.26：三行合并成两行）============
         # 主标题（日期）保留大字号；「进度」「今天已完成」合并成一行小字
@@ -199,19 +200,35 @@ class PlanExecutor(QWidget):
         # 额外安排：v0.12 起列表移到「额外安排」按钮打开的对话框里
         # （按钮在主操作大按钮上方，见 __init__）
 
-        # 计划日历（折叠在 advanced 里）
-        cal_group = QGroupBox("计划日历")
-        cal_inner = QVBoxLayout()
+        # ============ 计划队列（v0.27：底部一行，点开才展开）============
+        self.queue_toggle = QToolButton()
+        self.queue_toggle.setText("计划队列")
+        self.queue_toggle.setCheckable(True)
+        self.queue_toggle.setChecked(False)
+        self.queue_toggle.setStyleSheet("QToolButton { border: none; color: #888; }")
+        self.queue_toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.queue_toggle.setArrowType(Qt.RightArrow)
+        self.queue_toggle.setCursor(Qt.PointingHandCursor)
+        self.queue_toggle.clicked.connect(self._toggle_queue)
+        layout.addWidget(self.queue_toggle)
+
+        self.queue_container = QWidget()
+        queue_inner = QVBoxLayout(self.queue_container)
+        queue_inner.setContentsMargins(0, 0, 0, 0)
         self.calendar_area = QTextEdit()
         self.calendar_area.setReadOnly(True)
         self.calendar_area.setMaximumHeight(140)
-        cal_inner.addWidget(self.calendar_area)
-        cal_group.setLayout(cal_inner)
-        adv_layout.addWidget(cal_group)
-
-        self.advanced_container.setVisible(False)
+        queue_inner.addWidget(self.calendar_area)
+        self.queue_container.setVisible(False)
+        layout.addWidget(self.queue_container)
 
         self.setLayout(layout)
+
+    def _toggle_queue(self):
+        """v0.27：展开/收起底部的计划队列"""
+        checked = self.queue_toggle.isChecked()
+        self.queue_container.setVisible(checked)
+        self.queue_toggle.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
 
     def _toggle_advanced(self):
         """切换「更多」折叠区显示"""
@@ -501,6 +518,8 @@ class PlanExecutor(QWidget):
         frozen = " · 已拦截" if st["extras_frozen"] else ""
         self.extra_btn.setText(f"📋 额外安排（{count}）{frozen}")
         self.extra_btn.setEnabled(True)
+        # v0.27：0 条时这个按钮根本不出现（有额外安排才冒出来）
+        self.extra_btn.setVisible(count > 0)
 
         # 按钮启用状态 + 文案
         # v0.16：return_btn = 老「退回」按钮（仅撤今天完成 / 退额外轮最后一条）,逻辑保持 v0.15 不变。
@@ -529,6 +548,9 @@ class PlanExecutor(QWidget):
         cal = self.scheduler.get_calendar()
         st = self.scheduler.today_state()
         done_today = self.scheduler.done_today()
+
+        # v0.27：队列标题行带上剩余条数（收起时也能看到进度）
+        self.queue_toggle.setText(f"计划队列 · 还有 {len(self.scheduler.pending())} 条")
 
         lines = []
         head = f"已归档 {self.scheduler.total_done()} 条"

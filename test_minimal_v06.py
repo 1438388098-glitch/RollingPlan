@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from PyQt5.QtWidgets import QApplication, QPushButton, QWidget
+from PyQt5.QtWidgets import QApplication, QPushButton, QToolButton, QWidget
 app = QApplication(sys.argv)
 
 from rollingplan import (
@@ -361,6 +361,52 @@ def test_slot_context_menu_actions_v026b():
     assert_eq(menu2.actions()[0].isEnabled(), False, "已完成的格子「仅完成」置灰")
 
 
+# ============== v0.27 额外安排按钮 0 条隐藏 + 队列一行化 ==============
+
+
+def test_extra_button_hidden_at_zero_v027():
+    print("\n=== test_extra_button_hidden_at_zero_v027 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    assert_eq(ex.extra_btn.text(), "📋 额外安排（0）", "0 条：文案仍在（老测试照旧）")
+    assert_true(not ex.extra_btn.isVisible(), "0 条：按钮不出现")
+    ex.scheduler.borrow_next()
+    ex.refresh()
+    app.processEvents()
+    assert_true(ex.extra_btn.isVisible(), "有 1 条：按钮冒出来")
+    assert_true("额外安排（1）" in ex.extra_btn.text(), "有 1 条：文案带条数")
+
+
+def test_queue_line_collapsed_v027():
+    print("\n=== test_queue_line_collapsed_v027 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    assert_true(ex.queue_toggle.isVisible(), "队列标题行常驻可见")
+    assert_true("计划队列" in ex.queue_toggle.text(), f"标题文案：{ex.queue_toggle.text()!r}")
+    assert_true("条" in ex.queue_toggle.text(), "标题带剩余条数")
+    assert_not_visible(ex.queue_container, "队列默认收起")
+    assert_not_visible(ex.calendar_area, "队列内容默认看不见")
+    ex.queue_toggle.click()
+    app.processEvents()
+    assert_visible(ex.calendar_area, "点开后队列可见")
+    assert_eq(ex.queue_toggle.arrowType(), Qt.DownArrow, "点开后箭头朝下")
+    ex.queue_toggle.click()
+    app.processEvents()
+    assert_not_visible(ex.queue_container, "再点一次收起")
+
+
+def test_queue_not_in_advanced_v027():
+    print("\n=== test_queue_not_in_advanced_v027 ===")
+    ex = PlanExecutor(make_data(), lambda: None)
+    _show(ex)
+    ex.advanced_toggle.click()
+    app.processEvents()
+    # 队列已经搬出「更多」了：展开「更多」也不该顺带把队列带出来
+    assert_not_visible(ex.queue_container, "「更多」展开 ≠ 队列展开")
+    names = [w.text() for w in ex.advanced_container.findChildren(QToolButton)]
+    assert_true("计划队列 · 还有 5 条" not in names, "队列标题不在「更多」容器里")
+
+
 def main():
     test_editor_three_toggles_exist()
     test_editor_toggles_initially_collapsed()
@@ -378,6 +424,9 @@ def main():
     test_slot_row_single_button_v026b()
     test_slot_hidden_buttons_still_exist_v026b()
     test_slot_context_menu_actions_v026b()
+    test_extra_button_hidden_at_zero_v027()
+    test_queue_line_collapsed_v027()
+    test_queue_not_in_advanced_v027()
     print(f"\n=== ALL TESTS PASSED ({PASS_COUNT} assertions) ===")
 
 
