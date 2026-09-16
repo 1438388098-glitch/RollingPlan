@@ -226,9 +226,14 @@ class TestDayGrouping(unittest.TestCase):
     def test_plan_rows_grouped_and_recent_first(self):
         p, data = self._grouped()
         cv = PlanCalendarView(data)
-        # 第 2 天的两条在最上（5 → 4），第 1 天的三条在下面（3 → 2 → 1）
+        # v0.23：默认只展开最近一天（第 2 天）→ 只有它的两条可见
+        self.assertEqual(_plans_text(cv), ["5", "4"])
+        kinds = [cv.archive_list.item(i).data(Qt.UserRole)
+                 for i in range(cv.archive_list.count())]
+        self.assertEqual(kinds, ["day_header", "plan", "plan", "day_header"])
+        # 全部展开 → 五条都在，顺序仍是最近的在上
+        cv._on_toggle_all()
         self.assertEqual(_plans_text(cv), ["5", "4", "3", "2", "1"])
-        # 顺序核对：标题(第2天) 5 4 标题(第1天) 3 2 1
         kinds = [cv.archive_list.item(i).data(Qt.UserRole)
                  for i in range(cv.archive_list.count())]
         self.assertEqual(kinds,
@@ -238,6 +243,7 @@ class TestDayGrouping(unittest.TestCase):
     def test_green_only_marks_today(self):
         p, data = self._grouped()
         cv = PlanCalendarView(data)
+        cv._on_toggle_all()                     # 展开所有天才能看到过去的条目
         rows = _plan_rows(cv)
         # 前两行（第 2 天 = 今天）深绿
         self.assertTrue(_is_green(rows[0]))
@@ -249,14 +255,16 @@ class TestDayGrouping(unittest.TestCase):
     def test_archived_idx_per_row(self):
         p, data = self._grouped()
         cv = PlanCalendarView(data)
+        cv._on_toggle_all()
         idxs = [it.data(Qt.UserRole + 1) for it in _plan_rows(cv)]
         self.assertEqual(idxs, [4, 3, 2, 1, 0])   # 对应 archived 里的下标
 
-    def test_header_rows_not_selectable(self):
+    def test_header_rows_clickable_but_not_selectable(self):
+        """v0.23：分隔标题可点（收起/展开）—— 有 Enabled 但没有 Selectable。"""
         p, data = self._grouped()
         cv = PlanCalendarView(data)
         for it in _header_rows(cv):
-            self.assertEqual(it.flags(), Qt.NoItemFlags)
+            self.assertEqual(it.flags(), Qt.ItemIsEnabled)
 
     def test_legacy_save_without_boundaries(self):
         """v0.21 之前的老存档没有 daily_boundaries → 一天都不切,标成区间。"""
@@ -411,11 +419,14 @@ class TestNextDayPushesBoundary(unittest.TestCase):
         win.executor.on_complete_slot(0)
         cv = win.calendar_view
         cv.refresh()
-        self.assertEqual(_plans_text(cv), [p.archived[-1], p.archived[0]])
+        # v0.23 起默认只展开最近一天 → 先看到今天那条
+        self.assertEqual(_plans_text(cv), [p.archived[-1]])
         headers = _headers_text(cv)
         self.assertEqual(len(headers), 2)
         self.assertIn("第 2 天", headers[0])
         self.assertIn("第 1 天", headers[1])
+        cv._on_toggle_all()
+        self.assertEqual(_plans_text(cv), [p.archived[-1], p.archived[0]])
 
 
 class TestMultiParentSwitch(unittest.TestCase):
@@ -558,6 +569,92 @@ class TestArchiveExport(unittest.TestCase):
         finally:
             QMessageBox.information = orig
         self.assertEqual(len(calls), 1)
+
+
+class TestDayCollapse(unittest.TestCase):
+    """v0.23：归档历史按天折叠（点「📅 第 N 天」收起/展开 + 全部展开按钮）。"""
+
+    def _three_days(self):
+        """第 1 天 2 条 / 第 2 天 2 条 / 第 3 天（今天）1 条。"""
+        p = _make_parent(plans=["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+        p.archived.extend(["1", "2", "3", "4", "5"])
+        p.current_day = 2
+        p.daily_boundaries = [2, 4]
+        p.archived_base = 4
+        p.normalize()
+        data = PlanData()
+        data.parents = [p]
+        data.current_parent_idx = 0
+        return p, data
+
+    def test_default_only_newest_open(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        self.assertEqual(_plans_text(cv), ["5"])            # 只看到今天那条
+        heads = _header_rows(cv)
+        self.assertEqual(len(heads), 3)
+        self.assertTrue(heads[0].text().startswith("▾ "))    # 最近的一天展开
+        self.assertTrue(heads[1].text().startswith("▸ "))
+        self.assertTrue(heads[2].text().startswith("▸ "))
+
+    def test_click_header_expands_then_collapses(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        cv._on_archive_clicked(_header_rows(cv)[2])          # 点「第 1 天」
+        self.assertEqual(_plans_text(cv), ["5", "2", "1"])
+        self.assertTrue(_header_rows(cv)[2].text().startswith("▾ "))
+        cv._on_archive_clicked(_header_rows(cv)[2])          # 再点一次 → 收起
+        self.assertEqual(_plans_text(cv), ["5"])
+
+    def test_click_today_header_collapses_it(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        cv._on_archive_clicked(_header_rows(cv)[0])          # 收起今天
+        self.assertEqual(_plans_text(cv), [])
+
+    def test_click_plan_row_does_nothing(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        cv._on_archive_clicked(_plan_rows(cv)[0])
+        self.assertEqual(_plans_text(cv), ["5"])
+
+    def test_toggle_all_button_cycle(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        cv._on_toggle_all()                                  # 全部展开
+        self.assertEqual(_plans_text(cv), ["5", "4", "3", "2", "1"])
+        self.assertIn("全部收起", cv.expand_all_btn.text())
+        cv._on_toggle_all()                                  # 全部收起
+        self.assertEqual(_plans_text(cv), [])
+        self.assertIn("全部展开", cv.expand_all_btn.text())
+        cv._on_toggle_all()                                  # 再全部展开
+        self.assertEqual(_plans_text(cv), ["5", "4", "3", "2", "1"])
+
+    def test_toggle_all_clears_single_choices(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        cv._on_archive_clicked(_header_rows(cv)[2])          # 单独展开第 1 天
+        cv._on_toggle_all()                                  # 全展开 → 清掉单独状态
+        cv._on_toggle_all()                                  # 全收起
+        cv._on_toggle_all()                                  # 全展开
+        self.assertEqual(cv._day_open, {})
+
+    def test_state_survives_refresh(self):
+        p, data = self._three_days()
+        cv = PlanCalendarView(data)
+        cv._on_archive_clicked(_header_rows(cv)[2])
+        cv.refresh()                                         # 页面重刷（比如从执行页切回来）
+        self.assertEqual(_plans_text(cv), ["5", "2", "1"])
+
+    def test_header_click_does_not_touch_data(self):
+        """折叠纯粹是显示状态，不能改数据。"""
+        p, data = self._three_days()
+        before = list(p.archived)
+        cv = PlanCalendarView(data)
+        cv._on_archive_clicked(_header_rows(cv)[2])
+        cv._on_toggle_all()
+        self.assertEqual(p.archived, before)
+        self.assertEqual(p.daily_boundaries, [2, 4])
 
 
 class TestEstimateDaysLeft(unittest.TestCase):

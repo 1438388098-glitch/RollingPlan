@@ -131,6 +131,9 @@ class PlanCalendarView(QWidget):
         self.data = data
         self.on_data_reloaded = on_data_reloaded
         self.scheduler = None        # 跟当前选中的分类绑定
+        # v0.23：归档历史按天折叠的状态（只活在本次会话里，不写盘）
+        self._day_open = {}          # 用户单独点开/收起的那些天：day_key -> bool
+        self._expand_all = None      # 「全部展开/收起」按钮：True/False/None(没按过)
         self._init_ui()
         self.refresh()
 
@@ -158,6 +161,12 @@ class PlanCalendarView(QWidget):
         self.export_btn.setToolTip("把当前分类的归档历史写成 .txt（按天分组 + 今天完成 + 各时段备注）")
         self.export_btn.clicked.connect(self._on_export)
         top_row.addWidget(self.export_btn)
+
+        # v0.23：归档历史整体展开 / 收起（默认只展开最近一天）
+        self.expand_all_btn = QPushButton("▾ 全部展开")
+        self.expand_all_btn.setToolTip("展开或收起所有天的归档条目")
+        self.expand_all_btn.clicked.connect(self._on_toggle_all)
+        top_row.addWidget(self.expand_all_btn)
         layout.addLayout(top_row)
 
         # ============ 主区：进度 + 归档历史 + 今天完成 ============
@@ -182,6 +191,7 @@ class PlanCalendarView(QWidget):
         archive_inner = QVBoxLayout()
         self.archive_list = QListWidget()
         self.archive_list.setFont(QFont("Microsoft YaHei", 12))
+        self.archive_list.itemClicked.connect(self._on_archive_clicked)
         archive_inner.addWidget(self.archive_list)
         archive_group.setLayout(archive_inner)
         layout.addWidget(archive_group, stretch=1)
@@ -288,20 +298,69 @@ class PlanCalendarView(QWidget):
         return sections
 
     def _archive_rows(self, p):
-        """归档历史列表的行，显示顺序 = 最近的天在上、每天内部最近完成的在上。
+        """归档历史列表的行（显示顺序：最近的天在上、每天内部最近完成的在上）。
 
-        返回 [(kind, text, archived_idx), ...]，kind ∈ {"header", "plan"}；
-        header 行的 archived_idx 是 None。
+        返回 [{"kind","text","idx","day_key","open"}, ...]：
+        - kind = "header"（每天一行分隔标题，可点开/收起）或 "plan"
+        - idx = 该条目在 p.archived 里的下标（header 是 None）
+        - day_key = 这一天的标识（收起状态按它记）
+        - open = 这一天当前展开与否；收起时该天的条目行**不产出**（列表直接变短）
         """
         rows = []
+        first_shown = True
         for sec in reversed(self._day_sections(p)):
             plans = sec["plans"]
             if not plans:
                 continue
-            rows.append(("header", sec["label"], None))
+            key = sec["label"]
+            is_open = self._section_open(key, first_shown)
+            first_shown = False          # 默认只展开最上面（最近）那一天
+            rows.append({
+                "kind": "header",
+                "text": ("▾ " if is_open else "▸ ") + key,
+                "idx": None,
+                "day_key": key,
+                "open": is_open,
+            })
+            if not is_open:
+                continue
             for off in range(len(plans) - 1, -1, -1):
-                rows.append(("plan", plans[off], sec["start"] + off))
+                rows.append({
+                    "kind": "plan",
+                    "text": plans[off],
+                    "idx": sec["start"] + off,
+                    "day_key": key,
+                    "open": True,
+                })
         return rows
+
+    def _section_open(self, key, first_shown=False):
+        """v0.23：这一天展开还是收起。
+
+        优先级：用户单独点过的 > 「全部展开/收起」按钮 > 默认（只展开最上面一天）。
+        """
+        if key in self._day_open:
+            return self._day_open[key]
+        if self._expand_all is not None:
+            return self._expand_all
+        return bool(first_shown)
+
+    def _on_archive_clicked(self, item):
+        """点「📅 第 N 天」那行 → 收起 / 展开那一天。"""
+        if item.data(Qt.UserRole) != "day_header":
+            return
+        key = item.data(Qt.UserRole + 2)
+        was_open = bool(item.data(Qt.UserRole + 3))
+        self._day_open[key] = not was_open
+        self._refresh_view()
+
+    def _on_toggle_all(self):
+        """「全部展开」↔「全部收起」（清掉单独点过的状态）。"""
+        want_open = not (self._expand_all is True)
+        self._expand_all = want_open
+        self._day_open = {}
+        self.expand_all_btn.setText("▸ 全部收起" if want_open else "▾ 全部展开")
+        self._refresh_view()
 
     def _refresh_view(self):
         """拉一遍 scheduler 数据填进控件。"""
@@ -327,18 +386,20 @@ class PlanCalendarView(QWidget):
             base = getattr(p, "archived_base", 0) or 0
             header_color = self.palette().color(QPalette.WindowText)
             header_color.setAlpha(150)          # 跟着浅色 / 深色主题走，不用写死的灰
-            for kind, text, idx in self._archive_rows(p):
-                if kind == "header":
-                    item = QListWidgetItem(text)
+            for row in self._archive_rows(p):
+                if row["kind"] == "header":
+                    item = QListWidgetItem(row["text"])
                     item.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
                     item.setForeground(QBrush(header_color))
-                    item.setFlags(Qt.NoItemFlags)   # 分隔标题不可选
+                    item.setFlags(Qt.ItemIsEnabled)      # v0.23：可点（收起/展开），但不可选
                     item.setData(Qt.UserRole, "day_header")
+                    item.setData(Qt.UserRole + 2, row["day_key"])
+                    item.setData(Qt.UserRole + 3, row["open"])
                 else:
-                    item = QListWidgetItem(f"      {text}")
+                    item = QListWidgetItem(f"      {row['text']}")
                     item.setData(Qt.UserRole, "plan")
-                    item.setData(Qt.UserRole + 1, idx)
-                    if idx is not None and idx >= base:
+                    item.setData(Qt.UserRole + 1, row["idx"])
+                    if row["idx"] is not None and row["idx"] >= base:
                         # 今天完成的（archived[base:]）用深绿标
                         item.setForeground(Qt.darkGreen)
                 self.archive_list.addItem(item)
