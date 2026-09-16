@@ -16,7 +16,7 @@ from PyQt5.QtGui import QFont, QBrush, QPalette
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QListWidget, QListWidgetItem,
-    QComboBox, QGroupBox, QPushButton, QFileDialog, QMessageBox,
+    QComboBox, QGroupBox, QPushButton, QFileDialog, QMessageBox, QToolButton,
 )
 
 from scheduler import PlanScheduler
@@ -262,18 +262,36 @@ class PlanCalendarView(QWidget):
         self.parent_combo.currentIndexChanged.connect(self._on_parent_changed)
         top_row.addWidget(self.parent_combo)
 
+        # v0.28：导出 / 全部展开 收进「⋯」（默认收起）
+        self.more_toggle = QToolButton()
+        self.more_toggle.setText("⋯")
+        self.more_toggle.setCheckable(True)
+        self.more_toggle.setChecked(False)
+        self.more_toggle.setStyleSheet("QToolButton { border: none; }")
+        self.more_toggle.setToolTip("导出归档 / 全部展开·收起")
+        self.more_toggle.clicked.connect(self._on_toggle_more)
+        top_row.addWidget(self.more_toggle)
+        layout.addLayout(top_row)
+
+        self.more_container = QWidget()
+        more_row = QHBoxLayout(self.more_container)
+        more_row.setContentsMargins(0, 0, 0, 0)
+
         # v0.22b：把当前分类的归档历史导出成文本文件（留档 / 回顾用）
         self.export_btn = QPushButton("⬇ 导出归档")
         self.export_btn.setToolTip("把当前分类的归档历史写成 .txt（按天分组 + 今天完成 + 各时段备注）")
         self.export_btn.clicked.connect(self._on_export)
-        top_row.addWidget(self.export_btn)
+        more_row.addWidget(self.export_btn)
 
         # v0.23：归档历史整体展开 / 收起（默认只展开最近一天）
         self.expand_all_btn = QPushButton("▾ 全部展开")
         self.expand_all_btn.setToolTip("展开或收起所有天的归档条目")
         self.expand_all_btn.clicked.connect(self._on_toggle_all)
-        top_row.addWidget(self.expand_all_btn)
-        layout.addLayout(top_row)
+        more_row.addWidget(self.expand_all_btn)
+
+        more_row.addStretch()
+        self.more_container.setVisible(False)
+        layout.addWidget(self.more_container)
 
         # ============ 主区：进度 + 归档历史 + 今天完成 ============
         # 进度
@@ -293,7 +311,7 @@ class PlanCalendarView(QWidget):
         layout.addWidget(progress_group)
 
         # 归档历史（按天分组）
-        archive_group = QGroupBox("🗂 归档历史（按天分组，最近完成的在上）")
+        archive_group = QGroupBox("🗂 归档历史")
         archive_inner = QVBoxLayout()
         self.archive_list = QListWidget()
         self.archive_list.setFont(QFont("Microsoft YaHei", 12))
@@ -303,14 +321,15 @@ class PlanCalendarView(QWidget):
         layout.addWidget(archive_group, stretch=1)
 
         # 今天完成（在归档历史里也能看到，但单独高亮一份更直观）
-        today_group = QGroupBox("✅ 今天完成")
+        # v0.28：今天什么都没完成时整组藏起来（没内容的框不占版面）
+        self.today_group = QGroupBox("✅ 今天完成")
         today_inner = QVBoxLayout()
         self.today_label = QLabel()
         self.today_label.setFont(QFont("Microsoft YaHei", 13))
         self.today_label.setWordWrap(True)
         today_inner.addWidget(self.today_label)
-        today_group.setLayout(today_inner)
-        layout.addWidget(today_group)
+        self.today_group.setLayout(today_inner)
+        layout.addWidget(self.today_group)
 
         self.setLayout(layout)
 
@@ -492,6 +511,10 @@ class PlanCalendarView(QWidget):
         self._day_open[key] = not was_open
         self._refresh_view()
 
+    def _on_toggle_more(self):
+        """v0.28：导出 / 全部展开 的折叠开关"""
+        self.more_container.setVisible(self.more_toggle.isChecked())
+
     def _on_toggle_all(self):
         """「全部展开」↔「全部收起」（清掉单独点过的状态）。"""
         want_open = not (self._expand_all is True)
@@ -508,6 +531,7 @@ class PlanCalendarView(QWidget):
             self.estimate_label.setText("")
             self.archive_list.clear()
             self.today_label.setText("（无分类）")
+            self.today_group.setVisible(False)
             return
 
         n, total, done, remaining, spd, days_left = summarize_all(parents)
@@ -548,6 +572,8 @@ class PlanCalendarView(QWidget):
         self.today_label.setText(
             "\n".join(today_lines) if today_lines else "（今天还没完成任何计划）"
         )
+        # v0.28：全部分类视图下，没有任何分类今天有完成 → 这一块收掉
+        self.today_group.setVisible(bool(today_lines))
 
     def _refresh_view(self):
         """拉一遍 scheduler 数据填进控件。"""
@@ -559,6 +585,7 @@ class PlanCalendarView(QWidget):
             self.estimate_label.setText("")
             self.archive_list.clear()
             self.today_label.setText("（无分类）")
+            self.today_group.setVisible(False)
             return
         p = self.scheduler.p
         done, total = self.scheduler.get_progress()
@@ -600,6 +627,8 @@ class PlanCalendarView(QWidget):
             self.today_label.setText("、".join(done_today))
         else:
             self.today_label.setText("（今天还没完成任何计划）")
+        # v0.28：没内容就把整组收掉
+        self.today_group.setVisible(bool(done_today) or bool(getattr(p, "slot_notes", None) and any(p.slot_notes)))
 
         # 每格的归档备注汇总
         notes = getattr(p, "slot_notes", None) or []

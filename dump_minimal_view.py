@@ -83,3 +83,14 @@ print()
 print("=== 制定页「默认视图」可见控件 ===")
 for line in walk(ed):
     print(line)
+
+from calendar_view import PlanCalendarView  # noqa: E402
+
+cv = PlanCalendarView(make_data())
+cv.resize(560, 780)
+cv.show()
+app.processEvents()
+print()
+print("=== 归档总览页「默认视图」可见控件 ===")
+for line in walk(cv):
+    print(line)

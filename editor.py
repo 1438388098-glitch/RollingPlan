@@ -279,6 +279,8 @@ class PlanEditor(QWidget):
         self.preview_area = QTextEdit()
         self.preview_area.setReadOnly(True)
         self.preview_area.setMaximumHeight(180)
+        # v0.28：预览区默认不占版面 —— 点了「预览」/「生成计划」才出现
+        self.preview_area.setVisible(False)
         layout.addWidget(self.preview_area)
 
         self.setLayout(layout)
@@ -651,6 +653,7 @@ class PlanEditor(QWidget):
                 m = "✓" if plan else "·"
                 lines.append(f"  {m} {sname}: {plan if plan else '(空)'}")
         self.preview_area.setText("\n".join(lines))
+        self.preview_area.setVisible(True)   # v0.28：有内容才占版面
 
     def go_exec(self):
         cp = self.data.current_parent

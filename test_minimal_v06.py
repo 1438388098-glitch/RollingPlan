@@ -452,6 +452,68 @@ def test_editor_main_actions_still_visible_v027b():
         assert_eq(getattr(ed, attr).isChecked(), False, f"{attr} 默认收起")
 
 
+# ============== v0.28 归档总览页瘦身 + 预览区按需出现 ==============
+
+
+def _cal_data(archived=None):
+    data = PlanData()
+    p = data.parents[0]
+    p.name = "备考"
+    p.time_slots = [{"name": "早", "count": 1}, {"name": "中", "count": 1}]
+    p.plans = ["电机学", "电力电子", "高电压"]
+    p.start_date = QDate.currentDate()
+    if archived:
+        p.archived = list(archived)
+        p.archived_base = 0
+    data.current_parent_idx = 0
+    return data
+
+
+def test_calendar_more_collapsed_v028():
+    print("\n=== test_calendar_more_collapsed_v028 ===")
+    from calendar_view import PlanCalendarView
+    cv = PlanCalendarView(_cal_data(archived=["电机学"]))
+    cv.resize(520, 700)
+    cv.show()
+    app.processEvents()
+    assert_true(cv.more_toggle.isVisible(), "「⋯」常驻可见")
+    assert_not_visible(cv.more_container, "导出/全部展开 默认收起")
+    assert_true(hasattr(cv, "export_btn"), "export_btn 还在（藏起来）")
+    assert_true(hasattr(cv, "expand_all_btn"), "expand_all_btn 还在（藏起来）")
+    cv.more_toggle.click()
+    app.processEvents()
+    assert_visible(cv.export_btn, "展开后「导出归档」可见")
+    assert_visible(cv.expand_all_btn, "展开后「全部展开」可见")
+
+
+def test_calendar_today_group_hidden_when_empty_v028():
+    print("\n=== test_calendar_today_group_hidden_when_empty_v028 ===")
+    from calendar_view import PlanCalendarView
+    # 今天什么都没完成 → 这一块不出现
+    cv = PlanCalendarView(_cal_data())
+    cv.resize(520, 700)
+    cv.show()
+    app.processEvents()
+    assert_true(not cv.today_group.isVisible(), "没完成时「今天完成」整组收起")
+    # 有完成 → 冒出来
+    cv2 = PlanCalendarView(_cal_data(archived=["电机学"]))
+    cv2.resize(520, 700)
+    cv2.show()
+    app.processEvents()
+    assert_true(cv2.today_group.isVisible(), "有完成时「今天完成」出现")
+
+
+def test_editor_preview_hidden_until_used_v028():
+    print("\n=== test_editor_preview_hidden_until_used_v028 ===")
+    ed = PlanEditor(make_data(), lambda: None)
+    _show(ed)
+    assert_true(not ed.preview_area.isVisible(), "预览区默认不占版面")
+    ed.preview_calendar()
+    app.processEvents()
+    assert_true(ed.preview_area.isVisible(), "点「预览」后预览区出现")
+    assert_true(len(ed.preview_area.toPlainText()) > 0, "预览区有内容")
+
+
 def main():
     test_editor_three_toggles_exist()
     test_editor_toggles_initially_collapsed()
@@ -475,6 +537,9 @@ def main():
     test_editor_more_collapsed_v027b()
     test_editor_date_group_collapsed_v027b()
     test_editor_main_actions_still_visible_v027b()
+    test_calendar_more_collapsed_v028()
+    test_calendar_today_group_hidden_when_empty_v028()
+    test_editor_preview_hidden_until_used_v028()
     print(f"\n=== ALL TESTS PASSED ({PASS_COUNT} assertions) ===")
 
 
