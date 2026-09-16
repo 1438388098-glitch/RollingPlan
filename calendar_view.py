@@ -21,6 +21,9 @@ from PyQt5.QtWidgets import (
 
 from scheduler import PlanScheduler
 
+# v0.24：下拉里代表「所有分类合起来看」的那一项
+ALL_PARENTS_LABEL = "（全部分类）"
+
 
 def build_archive_text(p, scheduler, now_str=None):
     """v0.22b：把当前分类的归档历史写成 UTF-8 文本（纯函数，方便测）。
@@ -79,10 +82,50 @@ def build_archive_text(p, scheduler, now_str=None):
 
 def export_archive_text(path, p, scheduler, now_str=None):
     """写成文件（UTF-8，带 BOM 让 Windows 记事本也认）。返回传进来的 path。"""
-    text = build_archive_text(p, scheduler, now_str=now_str)
+    return write_text_file(path, build_archive_text(p, scheduler, now_str=now_str))
+
+
+def write_text_file(path, text):
+    """UTF-8（带 BOM）+ \\n 换行写文件；返回 path。"""
     with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
         f.write(text)
     return path
+
+
+def build_all_archive_text(parents, now_str=None):
+    """v0.24：「全部分类」的导出 —— 每个分类一节，拼在一个文件里。"""
+    now_str = now_str or QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm")
+    parents = list(parents or [])
+    n, total, done, remaining, spd, days_left = summarize_all(parents)
+    parts = [
+        "RollingPlan 归档导出（全部分类）",
+        f"导出时间：{now_str}",
+        f"合计：{n} 个分类 · 已推进 {done} / 共 {total} 条（{pct(done, total)}）",
+        f"估算：{summarize_all_text(parents)}",
+    ]
+    for p in parents:
+        parts.append("")
+        parts.append("=" * 41)
+        parts.append(build_archive_text(p, PlanScheduler(p), now_str=now_str).rstrip("\n"))
+    return "\n".join(parts) + "\n"
+
+
+def export_all_archive_text(path, parents, now_str=None):
+    """把所有分类的归档写成一个文件；返回 path。"""
+    return write_text_file(path, build_all_archive_text(parents, now_str=now_str))
+
+
+def days_left_from(remaining, spd):
+    """v0.23：剩余条数 ÷ 每天格数 向上取整；0 条 → 0；没格子 → None（算不出来）。"""
+    if remaining <= 0:
+        return 0
+    if spd <= 0:
+        return None
+    return (remaining + spd - 1) // spd
+
+
+def slots_per_day_of(p):
+    return sum(s.get("count", 1) for s in (getattr(p, "time_slots", []) or []))
 
 
 def estimate_days_left(p):
@@ -96,12 +139,8 @@ def estimate_days_left(p):
     total = len(getattr(p, "plans", []) or [])
     done = len(getattr(p, "archived", []) or [])
     remaining = max(0, total - done)
-    spd = sum(s.get("count", 1) for s in (getattr(p, "time_slots", []) or []))
-    if remaining == 0:
-        return remaining, spd, 0
-    if spd <= 0:
-        return remaining, spd, None
-    return remaining, spd, (remaining + spd - 1) // spd
+    spd = slots_per_day_of(p)
+    return remaining, spd, days_left_from(remaining, spd)
 
 
 def estimate_text(p):
@@ -114,9 +153,43 @@ def estimate_text(p):
     return f"还剩 {remaining} 条 ≈ 还要 {days_left} 天（每天 {spd} 格）"
 
 
-class PlanCalendarView(QWidget):
-    """归档总览页：每个分类的进度 + 归档历史(按天分组) + 今天完成的。
+def short_days_text(p):
+    """一行里用的短版本（「全部分类」的分组标题用）：已完成 ✓ / 还要 N 天 / —（算不出）。"""
+    remaining, spd, days_left = estimate_days_left(p)
+    if remaining == 0:
+        return "已完成 ✓"
+    if days_left is None:
+        return "—"
+    return f"还要 {days_left} 天"
 
+
+def summarize_all(parents):
+    """v0.24：把所有分类合起来算（「全部分类」视图用）。
+
+    返回 (分类数, 总条数, 已完成, 剩余, 每天格数合计, 还要几天)
+    """
+    parents = list(parents or [])
+    total = sum(len(getattr(p, "plans", []) or []) for p in parents)
+    done = sum(len(getattr(p, "archived", []) or []) for p in parents)
+    spd = sum(slots_per_day_of(p) for p in parents)
+    remaining = max(0, total - done)
+    return len(parents), total, done, remaining, spd, days_left_from(remaining, spd)
+
+
+def summarize_all_text(parents):
+    """「全部分类」的估算说成人话。"""
+    n, total, done, remaining, spd, days_left = summarize_all(parents)
+    if remaining == 0:
+        return "全部计划都完成了 ✓"
+    if days_left is None:
+        return f"还剩 {remaining} 条（还没设时段，算不出天数）"
+    return f"还剩 {remaining} 条 ≈ 还要 {days_left} 天（每天合计 {spd} 格）"
+
+
+class PlanCalendarView(QWidget):
+    """归档总览页：每个分类的进度 + 归档历史（按天分组、可折叠） + 今天完成的。
+
+    下拉第 0 项是「全部分类」（v0.24）：合计进度 + 每个分类一块（进度 + 最近 3 条归档）。
     数据通过 scheduler 的已有 API 拿：
     - get_progress() → (已推进, 总)
     - total_done() → 累计完成条数
@@ -131,6 +204,7 @@ class PlanCalendarView(QWidget):
         self.data = data
         self.on_data_reloaded = on_data_reloaded
         self.scheduler = None        # 跟当前选中的分类绑定
+        self._all_mode = False       # v0.24：下拉选到「（全部分类）」时为 True（scheduler 为 None）
         # v0.23：归档历史按天折叠的状态（只活在本次会话里，不写盘）
         self._day_open = {}          # 用户单独点开/收起的那些天：day_key -> bool
         self._expand_all = None      # 「全部展开/收起」按钮：True/False/None(没按过)
@@ -208,37 +282,69 @@ class PlanCalendarView(QWidget):
 
         self.setLayout(layout)
 
-    def _on_parent_changed(self, idx):
-        """分类切换:重新拿 scheduler,刷新一遍"""
-        if idx < 0 or idx >= len(self.data.parents):
-            return
-        self.scheduler = PlanScheduler(self.data.parents[idx])
-        self._refresh_view()
-
     def refresh(self):
         """外部调用（导入数据后、分类切换后）刷新整页。"""
-        # 先按当前 data.parents 重建下拉
+        # 先按当前 data.parents 重建下拉（第 0 项是「全部分类」）
         cur_idx = self.parent_combo.currentIndex()
+        had_items = self.parent_combo.count() > 0
         self.parent_combo.blockSignals(True)
         self.parent_combo.clear()
+        if self.data.parents:
+            self.parent_combo.addItem(ALL_PARENTS_LABEL)
         for p in self.data.parents:
             self.parent_combo.addItem(p.name)
-        # 尽量保持原选项
-        if 0 <= cur_idx < self.parent_combo.count():
+        # 尽量保持原选项；第一次建列表 → 落在「当前分类」上（不打扰老习惯）
+        if had_items and 0 <= cur_idx < self.parent_combo.count():
             self.parent_combo.setCurrentIndex(cur_idx)
         elif self.parent_combo.count() > 0:
-            self.parent_combo.setCurrentIndex(self.data.current_parent_idx)
+            self.parent_combo.setCurrentIndex(
+                min(self.data.current_parent_idx + 1, self.parent_combo.count() - 1)
+            )
         self.parent_combo.blockSignals(False)
 
         idx = self.parent_combo.currentIndex()
-        if 0 <= idx < len(self.data.parents):
-            self.scheduler = PlanScheduler(self.data.parents[idx])
+        if 0 <= idx - 1 < len(self.data.parents):
+            self._all_mode = False
+            self.scheduler = PlanScheduler(self.data.parents[idx - 1])
         else:
+            self._all_mode = True
             self.scheduler = None
         self._refresh_view()
 
+    def _on_parent_changed(self, idx):
+        """分类切换:重新拿 scheduler,刷新一遍（下拉第 0 项 = 全部分类）"""
+        if idx == 0 or not (0 <= idx - 1 < len(self.data.parents)):
+            self._all_mode = True
+            self.scheduler = None
+        else:
+            self._all_mode = False
+            self.scheduler = PlanScheduler(self.data.parents[idx - 1])
+        self._refresh_view()
+
     def _on_export(self):
-        """v0.22b：导出当前分类的归档历史为文本文件。"""
+        """v0.22b / v0.24：导出归档。单分类 → 那一份；「全部分类」→ 所有分类拼一个文件。"""
+        all_mode = getattr(self, "_all_mode", False)
+        if all_mode:
+            parents = list(self.data.parents)
+            if not parents:
+                QMessageBox.information(self, "导出归档", "还没有可导出的分类。")
+                return
+            default_name = "RollingPlan 全部分类归档-{}.txt".format(
+                QDateTime.currentDateTime().toString("yyyy-MM-dd")
+            )
+            path, _ = QFileDialog.getSaveFileName(
+                self, "导出归档（全部分类）", default_name, "文本文件 (*.txt)"
+            )
+            if not path:
+                return
+            try:
+                export_all_archive_text(path, parents)
+            except OSError as exc:
+                QMessageBox.warning(self, "导出失败", f"写文件失败：\n{exc}")
+                return
+            QMessageBox.information(self, "导出归档", f"已导出 {len(parents)} 个分类到：\n{path}")
+            return
+
         if self.scheduler is None:
             QMessageBox.information(self, "导出归档", "还没有可导出的分类。")
             return
@@ -362,8 +468,60 @@ class PlanCalendarView(QWidget):
         self.expand_all_btn.setText("▸ 全部收起" if want_open else "▾ 全部展开")
         self._refresh_view()
 
+    def _refresh_all_view(self):
+        """v0.24：「全部分类」视图 —— 合计进度 + 每个分类一块（最近 3 条归档）。"""
+        parents = list(self.data.parents)
+        if not parents:
+            self.progress_label.setText("（无分类）")
+            self.estimate_label.setText("")
+            self.archive_list.clear()
+            self.today_label.setText("（无分类）")
+            return
+
+        n, total, done, remaining, spd, days_left = summarize_all(parents)
+        self.progress_label.setText(
+            f"共 {n} 个分类 · 已推进 {done} / 共 {total} 条（{pct(done, total)}）"
+        )
+        self.estimate_label.setText(summarize_all_text(parents))
+
+        header_color = self.palette().color(QPalette.WindowText)
+        header_color.setAlpha(150)
+        self.archive_list.clear()
+        for p in parents:
+            head = QListWidgetItem(
+                f"📁 {p.name}（{len(p.archived)}/{len(p.plans)} 条 · {short_days_text(p)}）"
+            )
+            head.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+            head.setForeground(QBrush(header_color))
+            head.setFlags(Qt.NoItemFlags)
+            head.setData(Qt.UserRole, "parent_header")
+            self.archive_list.addItem(head)
+            recent = list(p.archived)[-3:][::-1]      # 最近 3 条，最近的在上
+            if not recent:
+                empty = QListWidgetItem("      （暂无归档）")
+                empty.setFlags(Qt.NoItemFlags)
+                empty.setData(Qt.UserRole, "placeholder")
+                self.archive_list.addItem(empty)
+            for plan in recent:
+                item = QListWidgetItem(f"      {plan}")
+                item.setData(Qt.UserRole, "plan")
+                self.archive_list.addItem(item)
+
+        # 今天完成：各分类合起来列
+        today_lines = []
+        for p in parents:
+            dt = PlanScheduler(p).done_today()
+            if dt:
+                today_lines.append(f"{p.name}：{'、'.join(dt)}")
+        self.today_label.setText(
+            "\n".join(today_lines) if today_lines else "（今天还没完成任何计划）"
+        )
+
     def _refresh_view(self):
         """拉一遍 scheduler 数据填进控件。"""
+        if getattr(self, "_all_mode", False):
+            self._refresh_all_view()
+            return
         if self.scheduler is None:
             self.progress_label.setText("（无分类）")
             self.estimate_label.setText("")

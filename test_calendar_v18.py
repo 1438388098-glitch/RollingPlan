@@ -34,6 +34,8 @@ from rollingplan import ParentPlan, PlanData
 from calendar_view import (
     PlanCalendarView, build_archive_text, export_archive_text,
     estimate_days_left, estimate_text,
+    ALL_PARENTS_LABEL, summarize_all, summarize_all_text,
+    build_all_archive_text, export_all_archive_text,
 )
 from scheduler import PlanScheduler
 
@@ -446,10 +448,14 @@ class TestMultiParentSwitch(unittest.TestCase):
         # 倒序：最新在最上 = "2"，下面 "1"
         self.assertEqual(_plans_text(cv), ["2", "1"])
 
-        # 切到学习
-        cv.parent_combo.setCurrentIndex(1)
+        # 切到学习（下拉第 0 项是「全部分类」，所以分类 = index 1,2,...）
+        cv.parent_combo.setCurrentIndex(2)
         self.assertEqual(len(_plan_rows(cv)), 1)
         self.assertEqual(_plans_text(cv), ["A"])
+
+        # 切回第一个分类
+        cv.parent_combo.setCurrentIndex(1)
+        self.assertEqual(_plans_text(cv), ["2", "1"])
 
     def test_empty_progress_no_crash(self):
         p = _make_parent(name="空")
@@ -655,6 +661,124 @@ class TestDayCollapse(unittest.TestCase):
         cv._on_toggle_all()
         self.assertEqual(p.archived, before)
         self.assertEqual(p.daily_boundaries, [2, 4])
+
+
+class TestAllParentsView(unittest.TestCase):
+    """v0.24：下拉里的「（全部分类）」汇总视图。"""
+
+    def _two(self):
+        pa = _make_parent(name="工作", plans=["1", "2", "3", "4", "5", "6"])
+        pa.archived.extend(["1", "2"])            # 4/6 → 还剩 4 条（每天 3 格）
+        pb = _make_parent(name="学习", plans=["A", "B", "C"])
+        pb.archived.extend(["A", "B", "C"])       # 3/3 完成
+        data = PlanData()
+        data.parents = [pa, pb]
+        data.current_parent_idx = 0
+        return pa, pb, data
+
+    def test_combo_has_all_item_first_and_defaults_to_category(self):
+        pa, pb, data = self._two()
+        cv = PlanCalendarView(data)
+        self.assertEqual(cv.parent_combo.itemText(0), ALL_PARENTS_LABEL)
+        self.assertEqual(cv.parent_combo.itemText(1), "工作")
+        self.assertEqual(cv.parent_combo.currentIndex(), 1)   # 默认还是当前分类
+        self.assertFalse(cv._all_mode)
+
+    def test_all_view_shows_totals_and_each_parent(self):
+        pa, pb, data = self._two()
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)                    # 选「全部分类」
+        self.assertTrue(cv._all_mode)
+        # 合计进度：6+3=9 条计划，2+3=5 条完成
+        self.assertIn("共 2 个分类", cv.progress_label.text())
+        self.assertIn("共 9 条", cv.progress_label.text())
+        # 估算：剩 4 条 · 每天合计 6 格 → 1 天
+        self.assertIn("还要 1 天", cv.estimate_label.text())
+        heads = [it.text() for it in _items_by_role(cv, "parent_header")]
+        self.assertEqual(len(heads), 2)
+        self.assertIn("工作", heads[0])
+        self.assertIn("学习", heads[1])
+        # 每个分类下面列最近 3 条归档（最近的在上）
+        self.assertEqual(_plans_text(cv), ["2", "1", "C", "B", "A"])
+
+    def test_all_view_recent_only_three(self):
+        pa = _make_parent(name="工作", plans=["1", "2", "3", "4", "5", "6"])
+        pa.archived.extend(["1", "2", "3", "4", "5"])
+        data = PlanData()
+        data.parents = [pa]
+        data.current_parent_idx = 0
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)
+        self.assertEqual(_plans_text(cv), ["5", "4", "3"])     # 只列最近 3 条
+
+    def test_all_view_today_lines(self):
+        pa, pb, data = self._two()
+        pa.archived_base = 1                                  # 今天完成 "2"
+        pb.archived_base = 2                                  # 今天完成 "C"
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)
+        text = cv.today_label.text()
+        self.assertIn("工作：2", text)
+        self.assertIn("学习：C", text)
+
+    def test_all_view_empty_parent(self):
+        pa = _make_parent(name="空", plans=["1"])
+        pb = _make_parent(name="没有作业", plans=["A"])
+        pb.plans = []
+        pb.normalize()
+        data = PlanData()
+        data.parents = [pa, pb]
+        data.current_parent_idx = 0
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)
+        self.assertEqual(len(_items_by_role(cv, "placeholder")), 2)   # 两个分类都没归档 → 各一条占位
+        self.assertIn("空（", cv.archive_list.item(0).text())
+
+    def test_all_view_no_parents(self):
+        data = PlanData()
+        data.parents = []
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)
+        self.assertEqual(cv.progress_label.text(), "（无分类）")
+
+    def test_back_to_single_view(self):
+        pa, pb, data = self._two()
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)
+        cv.parent_combo.setCurrentIndex(1)                    # 切回「工作」
+        self.assertFalse(cv._all_mode)
+        self.assertEqual(cv.parent_combo.currentText(), "工作")
+        self.assertEqual(_plans_text(cv), ["2", "1"])
+
+    def test_summarize_all_pure(self):
+        pa, pb, data = self._two()
+        n, total, done, remaining, spd, days = summarize_all([pa, pb])
+        self.assertEqual((n, total, done, remaining, spd), (2, 9, 5, 4, 6))
+        self.assertEqual(days, 1)
+        self.assertIn("全部计划都完成了", summarize_all_text([]))
+        pa.archived[:] = list(pa.plans)          # 两个分类都做完 → 也是「全部完成」
+        pb.archived[:] = list(pb.plans)
+        self.assertIn("全部计划都完成了", summarize_all_text([pa, pb]))
+
+    def test_build_all_archive_text(self):
+        pa, pb, data = self._two()
+        txt = build_all_archive_text([pa, pb], now_str="2026-09-16 19:00")
+        self.assertIn("RollingPlan 归档导出（全部分类）", txt)
+        self.assertIn("合计：2 个分类", txt)
+        self.assertIn("分类：工作", txt)
+        self.assertIn("分类：学习", txt)
+        self.assertIn("=" * 41, txt)
+
+    def test_export_all_writes_file(self):
+        import tempfile
+        pa, pb, data = self._two()
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "all.txt")
+            export_all_archive_text(path, [pa, pb], now_str="2026-09-16 19:00")
+            with open(path, encoding="utf-8-sig") as f:
+                got = f.read()
+        self.assertEqual(got, build_all_archive_text([pa, pb], now_str="2026-09-16 19:00"))
+        self.assertIn("分类：学习", got)
 
 
 class TestEstimateDaysLeft(unittest.TestCase):
