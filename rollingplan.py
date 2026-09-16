@@ -433,6 +433,7 @@ class PlanData:
 
 # v0.17：PlanEditor 抽到 editor.py；这里 re-export 保持旧的导入路径继续工作
 from editor import PlanEditor  # noqa: F401
+from calendar_view import PlanCalendarView  # noqa: F401
 
 # ============== 执行界面 ==============
 
@@ -1125,15 +1126,28 @@ class MainWindow(QMainWindow):
             self.data, self.show_executor, on_data_reloaded=self.reload_executor,
         )
         self.executor = PlanExecutor(self.data, self.show_editor)
+        # v0.18：第三页「📊 归档总览」—— 看历史归档、进度、今天完成的列表
+        self.calendar_view = PlanCalendarView(self.data)
 
         self.tabs.addTab(self.editor, "✏️ 制定计划")
         self.tabs.addTab(self.executor, "▶ 执行计划")
+        self.tabs.addTab(self.calendar_view, "📊 归档总览")
+        # 第三页激活时也要能刷新（用户在第三页时执行页可能完成了一条）
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+    def _on_tab_changed(self, idx):
+        """切到归档总览页时刷一次 —— 用户可能在前两页完成了计划。"""
+        if idx == 2:
+            self.calendar_view.refresh()
 
     def reload_executor(self):
         """v0.4：导入数据后重建 executor 引用新的 PlanData"""
         self.executor = PlanExecutor(self.data, self.show_editor)
         self.tabs.removeTab(1)
         self.tabs.addTab(self.executor, "▶ 执行计划")
+        # v0.18：导入数据后归档总览页也要刷一遍(分类列表可能变了)
+        if hasattr(self, "calendar_view"):
+            self.calendar_view.refresh()
 
     def show_executor(self):
         self.executor = PlanExecutor(self.data, self.show_editor)
