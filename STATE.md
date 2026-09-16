@@ -130,7 +130,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 ```
 
 或 Windows 上双击 `build_windows.bat`（会先装依赖）。
-**`dist/RollingPlan.exe` 已经是 v0.25 的**（2026-09-16 19:30 重打，37,866,847 字节；旧的 v0.12 exe 已删）。
+**`dist/RollingPlan.exe` 已经是 v0.28 的**（2026-09-16 20:11 重打，37,867,210 字节；旧 v0.12 / v0.25 的都已删）。
 ⚠️ 这个 exe **还没人启动验证过**（想验但被安全策略拦了），下次改完代码要重新打包。
 
 ## 文件关键路径（WSL 视角）
@@ -141,7 +141,8 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 | 验收副本 | `/mnt/d/0-task/rollingplan/` |
 | Python venv（WSL 用） | `/mnt/d/0-task/rollingplan/.venv/`（PyQt5 5.15.11，Linux venv；Windows 上别用） |
 | 测试脚本 | 仓库根 `run_all_tests.sh`（验收副本里是同一份） |
-| 打包产物 | `/mnt/d/0-task/rollingplan/dist/RollingPlan.exe`（v0.25，2026-09-16 19:30） |
+| 打包产物 | `/mnt/d/0-task/rollingplan/dist/RollingPlan.exe`（v0.28，2026-09-16 20:11，37,867,210 字节） |
+| 界面自查工具 | 仓库根 `dump_minimal_view.py`（文字打印三页「默认视图」里真正可见的控件树） |
 
 源码 / 测试每次改完都 `cp -f` 到验收副本（两边应当逐字节一致，可用 `git hash-object` 比对）。
 
