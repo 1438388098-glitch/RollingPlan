@@ -497,25 +497,40 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, idx):
         """切到归档总览页时刷一次 —— 用户可能在前两页完成了计划。"""
-        if idx == 2:
+        w = self.tabs.widget(idx)
+        if w is self.calendar_view:
             self.calendar_view.refresh()
         # v0.29：切页淡入（idx=-1 是初始状态，不动；offscreen 下自动禁用）
         if idx >= 0:
-            animations.fade_in(self.tabs.widget(idx), 170)
+            animations.fade_in(w, 170)
+
+    def _replace_executor(self):
+        """换一个新 executor 并保证它始终占据 index 1（v0.30 修 P0）。
+
+        旧实现 removeTab(1) + addTab() —— addTab 是**追加到末尾**，第三页（v0.18）
+        出现后每点一次「开始执行」页签就变成 [制定, 归档, 执行]：
+        setCurrentIndex(1) 显示的是归档页、快捷键门槛 currentIndex()!=1 全部失准、
+        旧 executor 只是脱离页签树并不销毁（内存泄漏）。改成 insertTab(1) 兜底 +
+        deleteLater 旧页。
+        """
+        old = getattr(self, "executor", None)
+        self.executor = PlanExecutor(self.data, self.show_editor)
+        if old is not None:
+            old_idx = self.tabs.indexOf(old)
+            if old_idx >= 0:
+                self.tabs.removeTab(old_idx)
+            old.deleteLater()
+        self.tabs.insertTab(1, self.executor, "▶ 执行计划")
 
     def reload_executor(self):
         """v0.4：导入数据后重建 executor 引用新的 PlanData"""
-        self.executor = PlanExecutor(self.data, self.show_editor)
-        self.tabs.removeTab(1)
-        self.tabs.addTab(self.executor, "▶ 执行计划")
+        self._replace_executor()
         # v0.18：导入数据后归档总览页也要刷一遍(分类列表可能变了)
         if hasattr(self, "calendar_view"):
             self.calendar_view.refresh()
 
     def show_executor(self):
-        self.executor = PlanExecutor(self.data, self.show_editor)
-        self.tabs.removeTab(1)
-        self.tabs.addTab(self.executor, "▶ 执行计划")
+        self._replace_executor()
         self.tabs.setCurrentIndex(1)
 
     def show_editor(self):
@@ -524,6 +539,10 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, event):
         """只在「执行计划」页激活时，把快捷键转给 executor。
 
+        v0.30：门槛从「currentIndex() != 1」改成「currentWidget() is not executor」
+        —— 页签重建后顺序永远正确（_replace_executor 用 insertTab(1)），但按
+        widget 身份判断对任何未来页签重排都免疫。
+
         映射:
         - Ctrl+Enter / Ctrl+Return  → 加一个
         - Ctrl+D                     → 今天完成 / 进入下一天
@@ -531,7 +550,7 @@ class MainWindow(QMainWindow):
         - Ctrl+Shift+Z / Ctrl+Y      → 重做（history 栈;on_redo）
         - Esc / Tab 等其他键放行给 super(),制定页的输入框、Tab 切换、对话框关闭都正常。
         """
-        if self.tabs.currentIndex() != 1:
+        if self.tabs.currentWidget() is not self.executor:
             super().keyPressEvent(event)
             return
         key = event.key()

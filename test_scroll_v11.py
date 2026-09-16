@@ -794,9 +794,10 @@ def test_keyboard_shortcuts_in_executor_tab():
     win = MainWindow()
     # 注入我们的数据(覆盖默认的空 data)
     win.data = d
-    win.executor = PlanExecutor(d, lambda: None)
-    win.tabs.removeTab(1)
-    win.tabs.addTab(win.executor, "▶ 执行计划")
+    # v0.30：走窗口自己的 executor 替换 API —— executor 恒在 index 1。
+    # (旧写法 removeTab+addTab 会把 executor 追加到 index 2,再 setCurrentIndex(1)
+    #  实际显示的是归档页 —— 那是健壮性审计 P0-1 的 bug 模式,老测试曾把它固化)
+    win.show_executor()
     win.tabs.setCurrentIndex(1)
     win.show()
     app.processEvents()
