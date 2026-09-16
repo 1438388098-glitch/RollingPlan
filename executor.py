@@ -83,8 +83,7 @@ class PlanExecutor(QWidget):
         minor_row.addWidget(self.parent_switch_btn)
 
         # 主题下拉（执行页也方便切）
-        from rollingplan import THEME_OPTIONS
-        self.theme_combo = QComboBox()
+        self.theme_combo = QComboBox()   # THEME_OPTIONS 已在模块顶部 from theme import
         for key, label in THEME_OPTIONS:
             self.theme_combo.addItem(label, userData=key)
         from theme import app_settings

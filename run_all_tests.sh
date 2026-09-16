@@ -38,7 +38,8 @@ test_data_safety_v30.py
 
 # ---- 挑解释器：环境变量 > 本目录 venv > 验收副本 venv > 系统 python ----
 PY_BIN=""
-for cand in "${ROLLINGPLAN_PYTHON:-}" "$ROOT/.venv/bin/python" "$TASK_DIR/.venv/bin/python" \
+for cand in "${ROLLINGPLAN_PYTHON:-}" "$ROOT/.venv/bin/python" "$ROOT/.venv/Scripts/python.exe" \
+            "$TASK_DIR/.venv/bin/python" \
             "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
   if [ -n "$cand" ] && [ -x "$cand" ]; then
     PY_BIN="$cand"
@@ -57,6 +58,7 @@ fi
 
 echo "python: $PY_BIN"
 export QT_QPA_PLATFORM=offscreen
+export PYTHONUTF8=1   # v0.30：管道输出强制 utf-8，防 cp936 环境测试假失败（审计 P3-9）
 cd "$ROOT"
 
 fail=0

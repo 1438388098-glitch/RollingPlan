@@ -64,8 +64,7 @@ class PlanEditor(QWidget):
         # 主题切换（全局设置，最左）
         theme_label = QLabel("主题:")
         io_row.addWidget(theme_label)
-        from rollingplan import THEME_OPTIONS  # 避免循环引用
-        self.theme_combo = QComboBox()
+        self.theme_combo = QComboBox()   # THEME_OPTIONS 已在模块顶部 from theme import
         for key, label in THEME_OPTIONS:
             self.theme_combo.addItem(label, userData=key)
         # 初始值从 QSettings 读
