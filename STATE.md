@@ -1,6 +1,6 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-16 22:30（协作者克隆轮：v0.28b import 修复 + v0.29 全局动效）
+> **最后更新**：2026-09-17 凌晨（autopilot iter-6 全夜跑：v0.30 推倒重设计 R1~R22）
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
 > ⚠️ 上面两个是原作者机器的路径。**协作者克隆在 `D:\Claudeworkspace\RollingPlan`**
 > （origin = 1438388098-glitch/RollingPlan 的 fork，upstream = yM7-1/RollingPlan，有 write 权限）。
@@ -8,9 +8,10 @@
 > （`python` = Anaconda 3.6.5 + PyQt5，实测 11 个文件全过）。
 > **代码最新在**：本地 `main`（v0.28b + v0.29 动效，**领先 origin/main 2 个提交，待 push**）
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
-> **现在处在哪一步**：v0.28 极简改造 + **v0.29 全局动效**（`animations.py`，offscreen 自动禁用）
-> 都已落地，11 个测试文件全绿、`dump_minimal_view.py` 输出逐字节不变；
-> 待办 = **真机验收（现在连动效一起验）+ push**
+> **现在处在哪一步**：**v0.30 推倒重设计完成（R1~R22）**：设计系统 token 化、三个 P0
+> （页签错位/导入取消丢数据/读档失败静默）、三页卡片化重设计、动效 v2、存储迁移 INI、
+> 易用性批量修复；**17 个测试文件 530 断言 + 116 用例全绿**；
+> 待办 = **真机验收 + push（本地 main 领先远端 20+ 提交）**
 
 ## 项目一句话
 
@@ -51,6 +52,18 @@ git push origin main        # 没配 credential.helper，git 会自己读 ~/.net
 
 | 版本 | 内容 |
 |------|------|
+| v0.30 | **推倒重设计全夜跑（iter-6 R1~R22，subagent 三路审计驱动）**：
+|  | R1 设计系统 token 化（theme.py 重写：DARK_TOKENS/LIGHT_TOKENS/QSS_TEMPLATE + string.Template，15 个语义角色选择器 rpPrimary/rpSuccess/rpGhost/rpFold/rpDone/rpDim/rpSlotCard/rpExtraCard…，页面内联硬编码色 27 处全迁移）|
+|  | R2 修 P0 页签错位（removeTab+addTab 是追加→insertTab(1)+deleteLater；快捷键门槛按 currentWidget 身份；新增 test_tabs_v30）|
+|  | R3 修导入取消数据丢失链（to_dict 快照回滚替代 load() 回滚；test_import_cancel_v30）|
+|  | R4 from_dict 类型防线（idx/day sanitize+clamp；test_data_sanity_v30）|
+|  | R5 执行页卡片化重设计（rpSlotCard/rpExtraCard + 行内可见 ⋯ QToolButton + 空态 CTA + rpTitle 层级）|
+|  | R6 制定页重设计（新手引导条 + 时段单表单 _SlotEditDialog + 回车添加 + 校验自动展开聚焦）|
+|  | R7 动效 v2（MOTION token 表 + 窗口级 windowOpacity 出场 + 卡片 hover）|
+|  | R8 页面同步（切分类日期覆写 + 直点 tab 旧行；test_page_sync_v30）|
+|  | R9 P0 数据安全包（读档失败弹窗+损坏转存 ~/.hermes_cache 时间戳备份+坏数据隔离；save 留一代 plan_data_backup；删除计划/时段确认；取消不偷建分类；test_data_safety_v30）|
+|  | R10 存储迁移（QSettings 显式 IniFormat 四参构造，Windows 不再写注册表；load 一次性迁移注册表旧数据；测试隔离随之真正生效）|
+|  | R11 归档页排版统一；R12 Ctrl+1/2/3 切页 + 窗口自适应小屏；R13 逻辑毛刺（额外安排锁改当前分类粒度/切天列具体条目+防连刷/重复时段编号）；R14 深色可读性（darkGreen→token、palette 假跟主题→token、rp-note-detail 透明）；R15 安全默认（三处确认默认否）；R16 动效收口（删整页切页特效/时长归 MOTION/fade_out/主题切换缓冲/菜单淡入）；R17 撤销入口统一（旧退回退隐）；R18 术语统一（额外轮→额外安排/报错人话/主题下拉同步）；R19 字号间距清账（23 处 QFont 清零/4px 网格/边距统一）；R20 工具链 Windows 兼容（venv Scripts 布局/PYTHONUTF8/循环导入清理）；R21 制定页 22 动作冒烟测试（test_editor_smoke_v30）；R22 本文档轮 |
 | v0.29 | **全局动效**：新模块 `animations.py`（165 行）统一收口 —— `fade_in()` / `toggle_section()`（maximumHeight 高度动画）。接入：切页淡入（MainWindow._on_tab_changed）/ 执行页「更多」+ 队列行、制定页五组、归档页「⋯」折叠区高度展开收起 / 完成并滚动·切天·切分类 后 day_container 轻淡入 / 额外安排按钮·归档「今天完成」·制定页预览区 从无到有时浮现 / ExtraArrangementsDialog 弹出淡入。OutCubic + 150~220ms；特效动完即摘；同控件同动画重触发先 disconnect+stop（中途反转不跳变）；**`QT_QPA_PLATFORM=offscreen` 下 enabled() 恒 False，禁用路径 = 一句 setVisible** → 测试行为与 v0.28 一致（11 文件全绿 + dump 逐字节相同已验证）。executor 新存 `self.day_container` 引用 + `_extra_btn_was_visible` 追踪；calendar_view 的 today_group 可见性统一走 `_set_today_group_visible()` |
 | v0.28b | **修 bug**：`editor.py` 缺 `QInputDialog` / `QFileDialog` 的 import —— 新建分类 / 重命名 / 编辑计划 / 编辑时段 / 导入 / 导出 一点就 NameError（v0.17 抽分文件时丢的；测试没盖住这几条 UI 路径所以一直全绿没暴露） |
 | v0.26 | **执行页顶栏极简**：默认只剩「更多」+ 分类名（切换分类/主题/返回制定 收进折叠区）；日期/进度/今天完成 三行并成两行 |
@@ -78,17 +91,17 @@ git push origin main        # 没配 credential.helper，git 会自己读 ~/.net
 
 v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成并滚动 / 队列模型）见 git 历史里 `main` 的提交。
 
-## 文件与行数（v0.29）
+## 文件与行数（v0.30）
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `executor.py` | 876 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog`；v0.29 存 `day_container` 引用、额外安排按钮浮现追踪、对话框 showEvent 淡入 |
-| `editor.py` | 670 | `PlanEditor`（制定计划页）；五组折叠走 `animations.toggle_section` |
-| `calendar_view.py` | 661 | `PlanCalendarView`（归档总览）+ 纯函数；today_group 可见性统一走 `_set_today_group_visible()`（浮现动效） |
-| `rollingplan.py` | 618 | `ParentPlan` / `PlanData` / `MainWindow`；v0.29 切页淡入 |
+| `executor.py` | 878 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog`；v0.29 存 `day_container` 引用、额外安排按钮浮现追踪、对话框 showEvent 淡入 |
+| `editor.py` | 813 | `PlanEditor`（制定计划页）；五组折叠走 `animations.toggle_section` |
+| `calendar_view.py` | 665 | `PlanCalendarView`（归档总览）+ 纯函数；today_group 可见性统一走 `_set_today_group_visible()`（浮现动效） |
+| `rollingplan.py` | 760 | `ParentPlan` / `PlanData` / `MainWindow`；v0.29 切页淡入 |
 | `scheduler.py` | 565 | `PlanScheduler`（队列 / 当天行 / 完成 / 滚动 / 额外轮的算法都在这儿） |
-| `animations.py` | 165 | **v0.29 全局动效**：`fade_in` / `toggle_section`（maximumHeight 高度动画）/ 动画重触发防跳变 / offscreen 自动禁用 |
-| `theme.py` | 388 | 三套 QSS + `apply_theme` |
+| `animations.py` | 262 | **v0.29 全局动效**：`fade_in` / `toggle_section`（maximumHeight 高度动画）/ 动画重触发防跳变 / offscreen 自动禁用 |
+| `theme.py` | 462 | 三套 QSS + `apply_theme` |
 
 ## 测试状态
 
@@ -218,6 +231,15 @@ python3 ~/.hermes/skills/auto-iterate-project/scripts/autopilot_state.py init --
 
 ## 备忘（改代码前先看）
 
+- **iter-6 全夜跑的三条新教训**：
+  1. **autopilot 每轮开工必须先单独跑 begin-round、确认树干净再动代码** ——
+     R6/R10 两次把改动和 begin-round 混在同一条链里，commit 被拒/round 记错 SHA，
+     只能 commit --round <N> 补孤儿提交。
+  2. **QSettings 两参构造在 Windows = 注册表**：v30 之前的测试隔离
+     （setDefaultFormat+setPath）对它完全不生效，测试互相污染还写穿真实数据。
+     现已全仓库改 theme.app_settings()（显式 IniFormat 四参）。**别再直接 new QSettings("RollingPlan","Data")**。
+  3. **测试里打桩模态框只许 patch 静态方法**（QMessageBox.question / QInputDialog.getText），
+     patch 实例方法 exec_ 或让真模态在 offscreen 弹出来 = 挂死/段错误/退出崩溃。
 - **v0.29 动效三条铁律**（改 UI 前先看）：
   1. **offscreen 恒禁用**：`animations.enabled()` 见 `QT_QPA_PLATFORM=offscreen` 就 False，
      禁用路径 = 一句 `setVisible`。**测试 / dump_minimal_view 必须永远走这条路** ——
