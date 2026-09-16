@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 from scheduler import PlanScheduler
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
 import animations
+import theme
 
 # PlanData 类型提示用（避免循环 import：rollingplan.py 会 import editor）
 from typing import TYPE_CHECKING
@@ -431,8 +432,12 @@ class PlanEditor(QWidget):
 
         self.scheduler = PlanScheduler(cp)
 
-        # v0.30：配齐计划+时段后引导条退场
-        self.guide_label.setVisible(not (cp.plans and cp.time_slots))
+        # v0.30：配齐计划+时段后引导条淡出退场（不瞬移）
+        should_show = not (cp.plans and cp.time_slots)
+        if not should_show and self.guide_label.isVisible():
+            animations.fade_out(self.guide_label, theme.MOTION["fast"])
+        else:
+            self.guide_label.setVisible(should_show)
 
     def _reveal(self, toggle, body, input_widget=None):
         """v0.30：校验失败时展开对应折叠组并聚焦输入框（审计 P1-8）。"""
@@ -599,6 +604,7 @@ class PlanEditor(QWidget):
         if not key:
             return
         apply_theme(QApplication.instance(), key)
+        animations.fade_in(self, theme.MOTION["fast"])   # R16：换肤后轻淡入缓冲硬切
         from theme import app_settings
         s = app_settings()
         s.setValue(THEME_KEY, key)
@@ -742,7 +748,7 @@ class PlanEditor(QWidget):
                 lines.append(f"  {m} {sname}: {plan if plan else '(空)'}")
         self.preview_area.setText("\n".join(lines))
         self.preview_area.setVisible(True)   # v0.28：有内容才占版面
-        animations.fade_in(self.preview_area, 180)   # v0.29：预览区浮现
+        animations.fade_in(self.preview_area, theme.MOTION["base"])   # 预览区浮现
 
     def go_exec(self):
         cp = self.data.current_parent

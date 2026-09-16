@@ -587,9 +587,8 @@ class MainWindow(QMainWindow):
             self.calendar_view.refresh()
         elif w is self.executor:
             self.executor.refresh()
-        # v0.30 R7：切页快淡（fast 档，短到干脆利落；offscreen 下自动禁用）
-        if idx >= 0:
-            animations.fade_in(w, theme.MOTION["fast"])
+        # v0.30 R16：切页不再挂整页透明度特效 —— 每帧全页重绘是切页卡顿感来源
+        # （视觉复查 Top#2）；干脆的瞬时切换比半吊子淡入更「流畅」
 
     def _replace_executor(self):
         """换一个新 executor 并保证它始终占据 index 1（v0.30 修 P0）。

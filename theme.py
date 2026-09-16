@@ -128,9 +128,10 @@ LIGHT_TOKENS = dict(
 
 # 动效 token：全仓库时长/缓动只从这里取（animations.py / 页面统一口径）
 MOTION = dict(
-    fast=140,        # 微反馈：按压、hover 补偿
+    fast=140,        # 微反馈：按压、hover 补偿、轻淡入
     base=200,        # 常规：淡入、浮现
-    slow=280,        # 结构：折叠展开、切页
+    slow=280,        # 结构：折叠展开
+    collapse=240,    # 结构：折叠收起（略快于展开，收比开利落）
     ease="OutCubic", # QEasingCurve.Type 名字（animations 负责映射）
 )
 

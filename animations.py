@@ -161,6 +161,43 @@ def launch_fade(window):
     pop_window(window, MOTION["base"])
 
 
+def fade_out(widget, duration=None, on_finished=None):
+    """淡出后隐藏（widget 先挂特效降到 0，finished 里 setVisible(False) 并摘特效）。
+
+    需要控件「退场不瞬移」的场合用（如制定页引导条配齐后退场）。
+    """
+    if widget is None or not enabled() or not widget.isVisible():
+        if on_finished is not None:
+            on_finished()
+        return
+    key = "_rp_anim_fadeout"
+    _stop_old(widget, key)
+    effect = widget.graphicsEffect()
+    if not isinstance(effect, QGraphicsOpacityEffect):
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+    anim = _make_anim(effect, "opacity", duration or MOTION["fast"])
+    anim.setStartValue(effect.opacity() if effect.opacity() < 1.0 else 1.0)
+    anim.setEndValue(0.0)
+
+    def _finished():
+        try:
+            widget.setVisible(False)
+            widget.setGraphicsEffect(None)
+            delattr(widget, key)
+        except (AttributeError, RuntimeError):
+            pass
+        if on_finished is not None:
+            try:
+                on_finished()
+            except RuntimeError:
+                pass
+
+    anim.finished.connect(_finished)
+    setattr(widget, key, anim)
+    anim.start(QPropertyAnimation.DeleteWhenStopped)
+
+
 def toggle_section(widget, visible, duration=None):
     """折叠区展开 / 收起（高度动画）。禁用路径 = 一句 setVisible，零行为变化。
 
@@ -189,7 +226,7 @@ def toggle_section(widget, visible, duration=None):
             return
         _animate_property(
             widget, "maximumHeight", widget.height(), 0,
-            max((duration or MOTION["slow"]) - 40, MOTION["fast"]),
+            duration or MOTION["collapse"],
             on_finished=lambda: (
                 widget.setVisible(False),
                 widget.setMaximumHeight(QWIDGETSIZE_MAX),

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from scheduler import PlanScheduler, _pending_of
 from theme import apply_theme, THEME_KEY, THEME_OPTIONS
 import animations
+import theme
 
 if TYPE_CHECKING:
     # 仅给 type checker 看,运行时不会评估,避免循环 import
@@ -452,6 +453,7 @@ class PlanExecutor(QWidget):
     def _open_slot_menu(self, slot_idx, done, fixed, blocked):
         """v0.30：行内「⋯」按钮打开格子菜单（复用右键同一个菜单）。"""
         menu = self._build_slot_menu(self, slot_idx, done, fixed, blocked)
+        animations.pop_window(menu)   # R16：菜单出场轻淡入（合成器侧，零开销）
         menu.exec_(QCursor.pos())
 
     def _build_slot_menu(self, parent, slot_idx, done, fixed, blocked):
@@ -531,7 +533,7 @@ class PlanExecutor(QWidget):
         self.extra_btn.setVisible(count > 0)
         # v0.29：按钮从无到有冒出来的那一刻给一次淡入（刷新别的不动）
         if count > 0 and not self._extra_btn_was_visible:
-            animations.fade_in(self.extra_btn, 160)
+            animations.fade_in(self.extra_btn, theme.MOTION["fast"])
         self._extra_btn_was_visible = count > 0
 
         # 按钮启用状态 + 文案
@@ -675,7 +677,7 @@ class PlanExecutor(QWidget):
         if self.scheduler.complete_today_slot(slot_idx):
             self.data.save()
             self.refresh()
-            animations.fade_in(self.day_container, 150)   # 完成滚动后的轻反馈
+            animations.fade_in(self.day_container, theme.MOTION["fast"])   # 完成滚动后的轻反馈
 
     def on_next_day(self):
         p = self.data.current_parent
