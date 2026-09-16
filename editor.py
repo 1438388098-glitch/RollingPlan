@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QListWidget,
     QSpinBox, QDateEdit, QTextEdit, QMessageBox,
     QComboBox, QToolButton, QGroupBox, QApplication,
+    QInputDialog, QFileDialog,
 )
 
 from scheduler import PlanScheduler
