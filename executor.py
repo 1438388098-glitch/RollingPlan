@@ -173,9 +173,11 @@ class PlanExecutor(QWidget):
         # - redo_btn   = 新「重做」按钮（can_redo 时才显示）
         sub_row = QHBoxLayout()
         self.return_btn = QPushButton("⤴ 退回")
-        self.return_btn.setToolTip("优先撤销今天最近一次「完成」,否则退额外轮最后一条")
+        self.return_btn.setToolTip(
+            "旧「退回」入口已由「撤销」统一取代（撤销同样能撤完成/退额外轮）。保留对象给老测试。")
         self.return_btn.clicked.connect(self.on_return)
-        sub_row.addWidget(self.return_btn)
+        self.return_btn.setVisible(False)   # v0.30 R17（审计 P1-3）：不再作为 UI 入口
+        self.return_btn.setParent(self.advanced_container)
         self.undo_btn = QPushButton("↶ 撤销")
         self.undo_btn.setToolTip("撤销任意最近动作（完成/退回/添加/固定/拦截）(Ctrl+Shift+Z)")
         self.undo_btn.clicked.connect(self.on_undo)
@@ -541,6 +543,7 @@ class PlanExecutor(QWidget):
         # undo_btn = 新 history 栈的撤销入口,只在 history 不空时显示。
         # redo_btn = 新 history 栈的重做入口,只在 _redo 不空时显示。
         can_undo = self.scheduler.can_undo_complete()
+        # return_btn 已非可见入口（R17 合并进统一撤销），文案/状态维护保留给老测试
         self.return_btn.setEnabled(can_undo or self.scheduler.can_return())
         self.return_btn.setText("↶ 撤销完成" if can_undo else "⤴ 退回")
         self.undo_btn.setVisible(self.scheduler.p.can_undo())
