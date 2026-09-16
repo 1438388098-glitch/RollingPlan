@@ -2,7 +2,7 @@
 
 > **最后更新**：2026-09-16 19:35
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **代码最新在**：分支 `autopilot/348240aadc58`（HEAD = `aa2267a`）—— `main` 还停在 v0.12，别对着 main 找新代码
+> **代码最新在**：`main`（HEAD = `a698b64`，已 push 到 origin/main）—— v0.13~v0.25 全在上面，不用去别的分支找
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
 
 ## 项目一句话
@@ -14,24 +14,29 @@ PyQt5 桌面应用。**v0.22**：「日常计划管理」——计划是一列**
 撤销栈 + 第三页「📊 归档总览」（进度 + 「还剩 N 条 ≈ 还要 N 天」估算 / 归档历史**按天分组、可折叠** /
 今天完成 + 各时段归档备注 / **⬇ 导出归档**成 .txt / 下拉还能选「（全部分类）」看全局；切天也能 Ctrl+Z 退回）。
 
-## 分支与提交（重要）
+## 分支与提交
 
-`main` = `a4581a8`（v0.12 + 台账文档，与 origin/main 同步）。**v0.13 → v0.22 全部在 autopilot 分支链上，没有合并回 main，也没有 push**：
+**`main` = `a698b64`（v0.25），已 push，与 `origin/main` 一致。** v0.13 → v0.25 全部在 main 上：
+之前那些 autopilot 分支链已经**快进合并**进 main（`git merge --ff-only autopilot/348240aadc58`，
+一个 merge commit 都没有，单纯往后挪），链是：
 
-| 分支 | 覆盖版本 | tip |
+| 分支（历史，可删） | 覆盖版本 | tip |
 |------|----------|-----|
 | `autopilot/283447bffad0` | v0.13 快捷键 / v0.13 回归测试 / v0.14 抽 theme.py | `6374c90` |
 | `autopilot/2c7bffb2db41` | v0.15 抽 scheduler.py / v0.16 撤销栈 / v0.17 抽 editor.py / v0.18 归档总览页 / v0.19 归档备注可展开 | `a63e433` |
 | `autopilot/65dba054e425` | v0.20 修 Ctrl+Shift+Z·Ctrl+Y 未绑 / v0.21 抽 executor.py / v0.22 归档按天分组 | `7321579` |
 | `autopilot/a1f32a7e7932` | v0.22b 切天可撤销 / 归档导出文本 / 测试脚本进仓库 | `e7b4a00` |
-| `autopilot/348240aadc58` | **v0.23~v0.25** 剩余天数估算 / 按天折叠 / 全部分类汇总 / 文件名清洗 / README 更新 | `aa2267a` |
+| `autopilot/348240aadc58` | v0.23~v0.25 剩余天数估算 / 按天折叠 / 全部分类汇总 / 文件名清洗 / README 更新 | `aa2267a` |
 
-链是线性的（后一个 run 从上一个分支 tip 起）。要合进 main：
+这些分支的提交都在 main 里，本地留着只是当书签；要清理就 `git branch -d autopilot/*`（**别在
+autopilot run 还开着的时候删**）。下一轮迭代直接 `cd` 进仓库、对着 main 开跑，不用再管这条链。
+
+推代码（HTTPS + `~/.netrc` 里的 PAT，别用 SSH）：
 
 ```bash
 cd /mnt/d/0_git/RollingPlan
-git checkout main && git merge --ff-only autopilot/348240aadc58
-# 想推就再 git push origin main（配置里 push:false，我没推过）
+export GIT_TERMINAL_PROMPT=0
+git push origin main        # 没配 credential.helper，git 会自己读 ~/.netrc
 ```
 
 ## 版本改动一览
@@ -146,7 +151,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
    验完把结论写回本文件的验收行，再重新打包 exe。
 2. ~~把 `run_all_tests.sh` 收进 git 仓库~~ ✅ 已做（v0.22b：仓库根 `run_all_tests.sh` + `sync_to_task.sh`，
    两个脚本都自测过失败路径）。
-3. **`main` 合并**：见上面「分支与提交」。合并前建议先真机验收一次。
+3. **`main` 合并**：✅ 已做（ff 合并 + push 到 origin/main，tip `a698b64`）。
 4. 还没做的方向（按价值排）：
    - **布局重设计**（执行页只显示「今天 + 加一个 / 今天完成」）
    - **今日模式**（把「今天」单独做一页）
