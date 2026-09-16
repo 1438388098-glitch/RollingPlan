@@ -25,6 +25,7 @@ from scheduler import PlanScheduler
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
 import animations
 import theme
+from animations import pop_window
 
 # PlanData 类型提示用（避免循环 import：rollingplan.py 会 import editor）
 from typing import TYPE_CHECKING
@@ -889,6 +890,10 @@ class PlanEditor(QWidget):
 
 class _SlotEditDialog(QDialog):
     """v0.30：时段编辑单表单（名字 + 数量一个框搞定，替代两个 QInputDialog 串联）。"""
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animations.pop_window(self)   # R37：与额外安排对话框同款出场
 
     def __init__(self, parent, name="", count=1):
         super().__init__(parent)
