@@ -30,6 +30,7 @@ test_calendar_v18.py
 test_note_v19.py
 test_keyboard_v20.py
 test_tabs_v30.py
+test_import_cancel_v30.py
 "
 
 # ---- 挑解释器：环境变量 > 本目录 venv > 验收副本 venv > 系统 python ----
@@ -73,7 +74,7 @@ for f in $TEST_FILES; do
 done
 
 if [ "$fail" -eq 0 ]; then
-  echo "全部通过（12 个测试文件）"
+  echo "全部通过（13 个测试文件）"
 else
   echo "有测试失败 —— 别提交" >&2
 fi

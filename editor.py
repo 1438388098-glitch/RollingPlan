@@ -591,13 +591,26 @@ class PlanEditor(QWidget):
             QMessageBox.warning(self, "导出失败", msg)
 
     def on_import(self):
-        """从 JSON 导入。会覆盖当前所有数据。"""
+        """从 JSON 导入。会覆盖当前所有数据。
+
+        v0.30 修数据丢失链（健壮性审计 P0-2/P2-6）：
+        - import_from_file 内部就会 from_dict 覆盖内存，旧版「确认框点否」时靠
+          data.load() 从磁盘回滚 —— 但 load 可能失败（全新安装盘上还没有 plan_data），
+          而且就算 load 成功，from_dict 也会把 parents 换成一批**新对象**，
+          executor / 归档页的 scheduler 仍指向孤立的旧 ParentPlan，
+          之后任何完成动作都写进孤立对象然后被 save 静默丢弃。
+        - 现在导入前抓 to_dict 快照；点「否」直接 from_dict(快照) 恢复内存，
+          并像导入成功一样通知 on_data_reloaded() 重建 executor / 刷归档页，
+          保证三个页面重新绑到同一批对象上。
+        """
         path, _ = QFileDialog.getOpenFileName(
             self, "导入计划数据", "",
             "JSON 文件 (*.json);;所有文件 (*)",
         )
         if not path:
             return
+
+        snapshot = self.data.to_dict()   # 覆盖前的内存快照（取消时就恢复它）
 
         ok, msg, stats = self.data.import_from_file(path)
         if not ok:
@@ -620,8 +633,10 @@ class PlanEditor(QWidget):
             f"确认导入？此操作会覆盖现有数据。",
         )
         if confirm != QMessageBox.Yes:
-            # 回滚——重新加载磁盘上的旧数据
-            self.data.load()
+            # 取消：恢复导入前的内存状态（不碰磁盘），并同步三个页面的对象绑定
+            self.data.from_dict(snapshot)
+            if self.on_data_reloaded:
+                self.on_data_reloaded()
             self.refresh_all()
             return
 
