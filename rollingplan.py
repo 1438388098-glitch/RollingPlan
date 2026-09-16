@@ -514,10 +514,16 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
     def _on_tab_changed(self, idx):
-        """切到归档总览页时刷一次 —— 用户可能在前两页完成了计划。"""
+        """切页时刷新目标页 —— 用户可能在前一页改了数据。
+
+        v0.30（审计 P1-4）：直点执行页 tab 也要刷 —— 否则界面显示的还是旧
+        scheduler 的行，点「完成并滚动」归档的可能不是用户看到的那条。
+        """
         w = self.tabs.widget(idx)
         if w is self.calendar_view:
             self.calendar_view.refresh()
+        elif w is self.executor:
+            self.executor.refresh()
         # v0.30 R7：切页快淡（fast 档，短到干脆利落；offscreen 下自动禁用）
         if idx >= 0:
             animations.fade_in(w, theme.MOTION["fast"])
@@ -552,6 +558,10 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(1)
 
     def show_editor(self):
+        # v0.30（审计 P1-3）：进制定页前先把控件同步到当前分类 ——
+        # 执行页切换分类后，editor 的 date_edit 还显示旧分类日期，
+        # save_current_to_parent 会把旧日期覆写进新分类的 start_date
+        self.editor.refresh_all()
         self.tabs.setCurrentIndex(0)
 
     def showEvent(self, event):
