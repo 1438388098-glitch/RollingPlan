@@ -333,6 +333,10 @@ class PlanEditor(QWidget):
         if not name:
             QMessageBox.warning(self, "提示", "分类名不能为空")
             return
+        # v0.30 R24（审计 P2-11）：重名会让「切换分类」永远命中第一个
+        if name in [p.name for p in self.data.parents]:
+            QMessageBox.warning(self, "提示", "已有叫「{}」的分类，换一个名字吧".format(name))
+            return
         self.data.add_parent(name)
         self.data.current_parent_idx = len(self.data.parents) - 1
         self.scheduler = PlanScheduler(self.data.current_parent)
@@ -345,7 +349,12 @@ class PlanEditor(QWidget):
             return
         new_name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=self.data.parents[idx].name)
         if ok and new_name.strip():
-            self.data.parents[idx].name = new_name.strip()
+            new_name = new_name.strip()
+            if new_name != self.data.parents[idx].name and \
+                    new_name in [p.name for p in self.data.parents]:
+                QMessageBox.warning(self, "提示", "已有叫「{}」的分类，换一个名字吧".format(new_name))
+                return
+            self.data.parents[idx].name = new_name
             self.refresh_all()
             self.data.save()
 
