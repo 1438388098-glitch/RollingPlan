@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PyQt5.QtWidgets import QApplication, QPushButton, QToolButton, QWidget
 app = QApplication(sys.argv)
 
+from theme import app_settings
 from rollingplan import (
     PlanEditor, PlanExecutor, PlanData, PlanScheduler,
     THEME_OPTIONS, THEME_KEY,
@@ -212,7 +213,7 @@ def test_executor_theme_combo_exists():
 def test_executor_theme_combo_change_writes_qsettings():
     print("\n=== test_executor_theme_combo_change_writes_qsettings ===")
     from PyQt5.QtCore import QSettings
-    QSettings("RollingPlan", "Data").setValue(THEME_KEY, "dark")
+    app_settings().setValue(THEME_KEY, "dark")
 
     ex = PlanExecutor(make_data(), lambda: None)
     _show(ex)
@@ -224,7 +225,7 @@ def test_executor_theme_combo_change_writes_qsettings():
     assert_true(target is not None, "找到 light 索引")
 
     ex.theme_combo.setCurrentIndex(target)
-    saved = QSettings("RollingPlan", "Data").value(THEME_KEY)
+    saved = app_settings().value(THEME_KEY)
     assert_eq(saved, "light", "QSettings 写入 light")
 
     # 还原 dark

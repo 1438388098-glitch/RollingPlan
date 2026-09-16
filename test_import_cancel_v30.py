@@ -24,10 +24,14 @@ _tmp_dir = tempfile.mkdtemp(prefix="rollingplan_qsettings_")
 os.environ["XDG_CONFIG_HOME"] = _tmp_dir
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from theme import app_settings
 from rollingplan import MainWindow, PlanData
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_dir)
+# 清空注册表遗留（Windows 老版双参 QSettings 写进 HKCU 的测试垃圾），
+# 否则 load() 的注册表迁移会把它复活，破坏「全新安装」类前提
+QSettings(QSettings.NativeFormat, QSettings.UserScope, "RollingPlan", "Data").clear()
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -100,7 +104,7 @@ def test_import_cancel_works_on_fresh_install():
     print("\n=== test_import_cancel_works_on_fresh_install ===")
     # 全新安装：盘上还没有 plan_data，旧版 load() 回滚在这里失效。
     # （清掉本文件前序测试留下的隔离 QSettings，还原「空盘」前提）
-    s = QSettings("RollingPlan", "Data")
+    s = app_settings()
     s.clear()
     s.sync()
     win = MainWindow()          # 不 save → 磁盘无数据

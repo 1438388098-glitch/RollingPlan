@@ -87,7 +87,8 @@ class PlanExecutor(QWidget):
         self.theme_combo = QComboBox()
         for key, label in THEME_OPTIONS:
             self.theme_combo.addItem(label, userData=key)
-        _saved = QSettings("RollingPlan", "Data").value(THEME_KEY, "dark")
+        from theme import app_settings
+        _saved = app_settings().value(THEME_KEY, "dark")
         if _saved not in ("dark", "light", "auto"):
             _saved = "dark"
         for i, (k, _) in enumerate(THEME_OPTIONS):
@@ -233,7 +234,8 @@ class PlanExecutor(QWidget):
         if not key:
             return
         apply_theme(QApplication.instance(), key)
-        s = QSettings("RollingPlan", "Data")
+        from theme import app_settings
+        s = app_settings()
         s.setValue(THEME_KEY, key)
 
     def _clear_layout(self, layout):

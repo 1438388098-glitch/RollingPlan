@@ -361,7 +361,8 @@ class PlanData:
         return any(bool(p.borrowed_slots) for p in self.parents)
 
     def save(self):
-        s = QSettings("RollingPlan", "Data")
+        from theme import app_settings
+        s = app_settings()
         # v0.30（审计 P0-1 的保险丝）：写入前把上一代数据留进 plan_data_backup。
         # 万一新数据写坏/误操作，注册表里永远有上一份可手工找回。
         prev = s.value("plan_data")
@@ -373,8 +374,19 @@ class PlanData:
         """读档。失败时不再静默（审计 P0-1）：损坏的原始数据转存成备份文件，
         错误信息记到 last_load_error，由 MainWindow 弹窗告知用户。"""
         self.last_load_error = None
-        s = QSettings("RollingPlan", "Data")
+        from theme import app_settings
+        s = app_settings()
         data = s.value("plan_data")
+        if data is None:
+            # v0.30 R10 一次性迁移：老版本在 Windows 把数据写进了注册表
+            # （QSettings 两参构造 = NativeFormat），搬进 INI 后统一走文件存储
+            legacy_s = QSettings(QSettings.NativeFormat, QSettings.UserScope,
+                                 "RollingPlan", "Data")
+            legacy = legacy_s.value("plan_data")
+            if legacy:
+                data = legacy
+                s.setValue("plan_data", legacy)
+                legacy_s.remove("plan_data")   # 迁移完成，注册表只清这一项
         if data:
             try:
                 loaded = json.loads(data)
@@ -611,7 +623,8 @@ class MainWindow(QMainWindow):
         这样用户本次会话 save 出的新数据不会覆盖仅有的损坏原件（它已在 backup，
         原件内容也已转存为时间戳备份文件）。"""
         if self.data.last_load_error:
-            s = QSettings("RollingPlan", "Data")
+            from theme import app_settings
+            s = app_settings()
             corrupt = s.value("plan_data")
             if corrupt:
                 s.setValue("plan_data_backup", corrupt)
@@ -706,7 +719,8 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
 
     # 从 QSettings 读取上次主题，默认 dark
-    s = QSettings("RollingPlan", "Data")
+    from theme import app_settings
+    s = app_settings()
     saved_theme = s.value(THEME_KEY, "dark")
     if saved_theme not in ("dark", "light", "auto"):
         saved_theme = "dark"

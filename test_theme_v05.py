@@ -31,6 +31,7 @@ os.environ["XDG_CONFIG_HOME"] = _tmp_dir
 # 现在才 import 项目模块（QSettings 在 import 时读环境）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rollingplan
+from theme import app_settings
 from rollingplan import (
     apply_theme, THEME_OPTIONS, DARK_QSS, LIGHT_QSS,
     PlanData, PlanEditor, PlanExecutor,
@@ -136,17 +137,17 @@ def test_apply_invalid_fallback_dark():
 def test_theme_persisted_to_qsettings():
     print("\n=== test_theme_persisted_to_qsettings ===")
     from rollingplan import THEME_KEY
-    s = QSettings("RollingPlan", "Data")
+    s = app_settings()
     s.setValue(THEME_KEY, "light")
     s.sync()
-    s2 = QSettings("RollingPlan", "Data")
+    s2 = app_settings()
     saved = s2.value(THEME_KEY, "dark")
     assert_eq(saved, "light", "QSettings 写入并读出 light")
 
 
 def test_editor_theme_combo_setup():
     print("\n=== test_editor_theme_combo_setup ===")
-    s = QSettings("RollingPlan", "Data")
+    s = app_settings()
     s.setValue(rollingplan.THEME_KEY, "dark")
     s.sync()
     d = PlanData()
@@ -174,7 +175,7 @@ def test_editor_theme_change_writes_qsettings():
     assert_true(light_idx >= 0, "找到 light 索引")
     ed.theme_combo.setCurrentIndex(light_idx)
     ed.on_theme_changed(light_idx)
-    s = QSettings("RollingPlan", "Data")
+    s = app_settings()
     saved = s.value(rollingplan.THEME_KEY, "dark")
     assert_eq(saved, "light", "QSettings 写入 light")
 
@@ -205,7 +206,7 @@ def test_executor_theme_combo_change_writes_qsettings():
     assert_true(light_idx >= 0, "找到 light 索引")
     ex.theme_combo.setCurrentIndex(light_idx)
     ex.on_theme_changed(light_idx)
-    s = QSettings("RollingPlan", "Data")
+    s = app_settings()
     saved = s.value(rollingplan.THEME_KEY, "dark")
     assert_eq(saved, "light", "executor 切 light 后 QSettings 写入 light")
 

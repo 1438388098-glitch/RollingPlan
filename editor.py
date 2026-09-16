@@ -67,7 +67,8 @@ class PlanEditor(QWidget):
         for key, label in THEME_OPTIONS:
             self.theme_combo.addItem(label, userData=key)
         # 初始值从 QSettings 读
-        _saved = QSettings("RollingPlan", "Data").value(THEME_KEY, "dark")
+        from theme import app_settings
+        _saved = app_settings().value(THEME_KEY, "dark")
         if _saved not in ("dark", "light", "auto"):
             _saved = "dark"
         for i, (k, _) in enumerate(THEME_OPTIONS):
@@ -462,12 +463,11 @@ class PlanEditor(QWidget):
             return
         # v0.30（审计 P0-2）：删除不可撤销（撤销栈不覆盖编辑器），必须确认
         name = self.data.current_parent.plans[cur]
-        box = QMessageBox(self)
-        box.setWindowTitle("确认删除")
-        box.setText("删除计划「{}」？\n\n删除后无法撤销（执行页的进度不受影响）。".format(name))
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        box.setDefaultButton(QMessageBox.No)
-        if box.exec_() != QMessageBox.Yes:
+        ans = QMessageBox.question(
+            self, "确认删除",
+            "删除计划「{}」？\n\n删除后无法撤销（执行页的进度不受影响）。".format(name),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
             return
         self.data.current_parent.plans.pop(cur)
         self.refresh_all()
@@ -533,12 +533,11 @@ class PlanEditor(QWidget):
             return
         # v0.30（审计 P0-3）：删时段会改变每天的分格结构，今天的格子状态会重排
         name = self.data.current_parent.time_slots[cur]["name"]
-        box = QMessageBox(self)
-        box.setWindowTitle("确认删除")
-        box.setText("删除时段「{}」？\n\n每天的分格会变化，今天的格子状态会重排；删除后无法撤销。".format(name))
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        box.setDefaultButton(QMessageBox.No)
-        if box.exec_() != QMessageBox.Yes:
+        ans = QMessageBox.question(
+            self, "确认删除",
+            "删除时段「{}」？\n\n每天的分格会变化，今天的格子状态会重排；删除后无法撤销。".format(name),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
             return
         self.data.current_parent.time_slots.pop(cur)
         self.refresh_all()
@@ -581,7 +580,8 @@ class PlanEditor(QWidget):
         if not key:
             return
         apply_theme(QApplication.instance(), key)
-        s = QSettings("RollingPlan", "Data")
+        from theme import app_settings
+        s = app_settings()
         s.setValue(THEME_KEY, key)
 
     # ====== v0.4 导入/导出 ======

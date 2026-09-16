@@ -32,6 +32,9 @@ from rollingplan import MainWindow, PlanData
 
 QSettings.setDefaultFormat(QSettings.IniFormat)
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, _tmp_dir)
+# 清空注册表遗留（Windows 老版双参 QSettings 写进 HKCU 的测试垃圾），
+# 否则 load() 的注册表迁移会把它复活，破坏「全新安装」类前提
+QSettings(QSettings.NativeFormat, QSettings.UserScope, "RollingPlan", "Data").clear()
 
 app = QApplication.instance() or QApplication(sys.argv)
 

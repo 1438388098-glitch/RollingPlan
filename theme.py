@@ -25,6 +25,17 @@ from logging.handlers import RotatingFileHandler
 
 THEME_KEY = "RollingPlan/theme"  # QSettings key
 
+
+def app_settings():
+    """全局唯一的 QSettings 入口（v0.30 R10）。
+
+    用显式 IniFormat 四参构造 —— 旧的两参构造在 Windows 上走注册表
+    （HKCU\Software\RollingPlan\Data）：数据不可备份、不可迁移、测试也无法隔离
+    （setPath 只对 IniFormat 生效）。INI 文件与上游 Linux 布局一致，可备份可带走。
+    """
+    from PyQt5.QtCore import QSettings as _QS
+    return _QS(_QS.IniFormat, _QS.UserScope, "RollingPlan", "Data")
+
 THEME_OPTIONS = [
     ("dark", "深色"),
     ("light", "亮色"),
