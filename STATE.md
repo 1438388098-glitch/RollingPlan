@@ -1,8 +1,8 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-16 18:05
+> **最后更新**：2026-09-16 18:25
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **代码最新在**：分支 `autopilot/65dba054e425`（HEAD）—— `main` 还停在 v0.12，别对着 main 找新代码
+> **代码最新在**：分支 `autopilot/a1f32a7e7932`（HEAD = `e7b4a00`）—— `main` 还停在 v0.12，别对着 main 找新代码
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
 
 ## 项目一句话
@@ -11,7 +11,8 @@ PyQt5 桌面应用。**v0.22**：「日常计划管理」——计划是一列**
 额外轮 = 「当天额外的时间栏」。每一格四个动作：仅完成 / 完成并滚动 / 固定计划 / 拦截滚动（拦截连带额外轮）；
 上方「📋 额外安排（N）」细长条打开当天额外安排列表。多分类 + 添加指定 + 退回（可撤销）+ 导入导出 JSON +
 重置进度 + 三主题 + 快捷键（Ctrl+Enter 加一个 / Ctrl+D 今天完成 / Ctrl+Z 撤销 / Ctrl+Shift+Z·Ctrl+Y 重做）+
-撤销栈 + 第三页「📊 归档总览」（进度 / 归档历史**按天分组** / 今天完成 + 各时段归档备注）。
+撤销栈 + 第三页「📊 归档总览」（进度 / 归档历史**按天分组** / 今天完成 + 各时段归档备注 / **⬇ 导出归档**成 .txt；
+切天也能 Ctrl+Z 退回）。
 
 ## 分支与提交（重要）
 
@@ -21,13 +22,14 @@ PyQt5 桌面应用。**v0.22**：「日常计划管理」——计划是一列**
 |------|----------|-----|
 | `autopilot/283447bffad0` | v0.13 快捷键 / v0.13 回归测试 / v0.14 抽 theme.py | `6374c90` |
 | `autopilot/2c7bffb2db41` | v0.15 抽 scheduler.py / v0.16 撤销栈 / v0.17 抽 editor.py / v0.18 归档总览页 / v0.19 归档备注可展开 | `a63e433` |
-| `autopilot/65dba054e425` | v0.20 修 Ctrl+Shift+Z·Ctrl+Y 未绑 / v0.21 抽 executor.py / **v0.22 归档按天分组** | `7321579` |
+| `autopilot/65dba054e425` | v0.20 修 Ctrl+Shift+Z·Ctrl+Y 未绑 / v0.21 抽 executor.py / v0.22 归档按天分组 | `7321579` |
+| `autopilot/a1f32a7e7932` | **v0.22b** 切天可撤销 / 归档导出文本 / 测试脚本进仓库 | `e7b4a00` |
 
 链是线性的（后一个 run 从上一个分支 tip 起）。要合进 main：
 
 ```bash
 cd /mnt/d/0_git/RollingPlan
-git checkout main && git merge --ff-only autopilot/65dba054e425
+git checkout main && git merge --ff-only autopilot/a1f32a7e7932
 # 想推就再 git push origin main（配置里 push:false，我没推过）
 ```
 
@@ -45,6 +47,9 @@ git checkout main && git merge --ff-only autopilot/65dba054e425
 | v0.20 | 修 bug：`MainWindow.keyPressEvent` 里 Ctrl+Shift+Z / Ctrl+Y **以前根本没绑** `on_redo`（只有注释和 tooltip 写着） |
 | v0.21 | 抽出 `executor.py`（`PlanExecutor` + `ExtraArrangementsDialog`），`rollingplan.py` 1332 → 585 行 |
 | v0.22 | **归档总览按天分组**：`ParentPlan.daily_boundaries`（切天时 push 当天 `len(archived)`），`calendar_view` 折成「📅 第 N 天（X 条）」分隔标题 + 该天条目 |
+| v0.22b | **切天（今天完成）可撤销**：`on_next_day` 先 `push_history()`，Ctrl+Z 整块退回前一天 |
+| v0.22b | **归档导出**：第三页右上「⬇ 导出归档」→ `build_archive_text()` / `export_archive_text()` 写 UTF-8 文本 |
+| v0.22b | **测试基建**：`run_all_tests.sh` 进仓库（自动挑解释器、退出码 0/1/2）+ `sync_to_task.sh`（哈希核对同步） |
 
 v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成并滚动 / 队列模型）见 git 历史里 `main` 的提交。
 
@@ -52,11 +57,11 @@ v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成�
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `rollingplan.py` | 608 | `ParentPlan` / `PlanData` / `MainWindow`（数据模型 + 主窗口，编辑器 / 执行器 / 归档页都从这里 re-export） |
-| `executor.py` | 783 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog` |
+| `rollingplan.py` | 614 | `ParentPlan` / `PlanData` / `MainWindow`（数据模型 + 主窗口，编辑器 / 执行器 / 归档页都从这里 re-export） |
+| `executor.py` | 787 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog` |
 | `editor.py` | 621 | `PlanEditor`（制定计划页） |
 | `scheduler.py` | 565 | `PlanScheduler`（队列 / 当天行 / 完成 / 滚动 / 额外轮的算法都在这儿） |
-| `calendar_view.py` | 241 | `PlanCalendarView`（归档总览页，v0.22 起按天分组） |
+| `calendar_view.py` | 330 | `PlanCalendarView`（归档总览页，按天分组 + `build_archive_text` / `export_archive_text` 导出） |
 | `theme.py` | 388 | 三套 QSS + `apply_theme` |
 
 ## 测试状态
@@ -88,8 +93,8 @@ bash sync_to_task.sh         # 只覆盖 *.py / STATE.md / README.md / run_all_t
 | `test_minimal_v06.py` | 32 断言 | v0.6 极简 UI 折叠 |
 | `test_scroll_v11.py` | 170 断言 | v0.9~v0.12 滚动语义全量 |
 | `test_regression_v13.py` | 41 断言 | v0.9 队列模型回归 |
-| `test_undo_v16.py` | 24 用例 | v0.16 撤销栈 |
-| `test_calendar_v18.py` | 31 用例 | v0.18 归档总览 + **v0.22 按天分组**（模型层收敛 / 分组 / 老存档 / 切天 push） |
+| `test_undo_v16.py` | 30 用例 | v0.16 撤销栈 + **v0.22b 切天可撤销** |
+| `test_calendar_v18.py` | 38 用例 | v0.18 归档总览 + **v0.22 按天分组** + **v0.22b 归档导出**（含真实写盘回读） |
 | `test_note_v19.py` | 8 用例 | v0.19 归档备注展开 |
 | `test_keyboard_v20.py` | 5 用例 | v0.13 + v0.20 快捷键（含修好的 redo） |
 
@@ -122,10 +127,12 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 
 ## 接下来该做什么
 
-1. **第一优先：真机验收 + 重新打包。** v0.13~v0.22（七页 UI 改动里第三页是全新的、还有快捷键和撤销栈）
+1. **第一优先：真机验收 + 重新打包。** v0.13~v0.22b（七页 UI 改动里第三页是全新的、还有快捷键和撤销栈）
    **一次都没在真机跑过**，这轮迭代全是 headless 验证。要看的点：
    - 第三页「归档总览」的排版（进度 / 按天分组的归档历史 / 今天完成 + 时段备注）宽窄合不合适；
      **深色主题下分隔标题的对比度**（v0.22 起标题色取自调色板半透明，不再写死灰 `#555`）；
+   - 「⬇ 导出归档」按钮的位置 + 导出的 .txt 用 Windows 记事本打开有没有乱码（写的是 UTF-8 带 BOM）；
+   - 「今天完成」误点之后 **Ctrl+Z 能不能退回前一天**（v0.22b），撤销按钮文案会不会显示成「↶ 撤销「进入下一天」」；
    - 「📅 第 N 天」分组在归档很多时会不会太长（列表没有折叠）；
    - Ctrl+Enter / Ctrl+D / Ctrl+Z / Ctrl+Shift+Z 在真机输入法下会不会被吃掉；
    - 每格 4 个按钮挤不挤（v0.12 就留着没确认）。
@@ -162,6 +169,9 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
     并按 `current_day` 截断（撤回到「还没切天」的状态时，多出来的边界要跟着消失）。
   - 刚切天时 `archived_base == daily_boundaries[-1]`（同一个数），**两边都要写**（`executor.on_next_day`）。
   - `daily_boundaries` 在 `_SNAPSHOT_KEYS` 里 → 撤销栈会一起恢复；不在 `to_dict` 之外的任何派生字段里。
+  - **切天也会 push_history**（v0.22b）：`on_next_day` 在确认之后、改状态之前入栈，
+    所以 Ctrl+Z 能整块退回前一天（弹窗点取消时**不入栈**）。`history_top_label()` 里
+    「天数变了」的判断要放在归档/额外轮判断**之前**，否则会被「退回额外轮」抢走（切天会清额外轮）。
   - 老存档（v0.21 及以前）没有这个键 → 空列表，归档会标成「第 1–N 天」，不崩。
 - **JSON 键名不能改**：`borrowed_slots`、`archived` / `archived_base` / `consumed`（v0.9）、
   `inplace_done` / `slot_notes`（v0.10）、`slot_fixed` / `slot_blocked`（v0.11）、`daily_boundaries`（v0.22）。
