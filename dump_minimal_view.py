@@ -72,3 +72,14 @@ print()
 print("=== 点开「更多」之后 ===")
 for line in walk(ex):
     print(line)
+
+from rollingplan import PlanEditor  # noqa: E402
+
+ed = PlanEditor(make_data(), lambda: None)
+ed.resize(560, 780)
+ed.show()
+app.processEvents()
+print()
+print("=== 制定页「默认视图」可见控件 ===")
+for line in walk(ed):
+    print(line)

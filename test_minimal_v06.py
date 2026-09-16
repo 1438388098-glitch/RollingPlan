@@ -407,6 +407,51 @@ def test_queue_not_in_advanced_v027():
     assert_true("计划队列 · 还有 5 条" not in names, "队列标题不在「更多」容器里")
 
 
+# ============== v0.27b 制定页瘦身 ==============
+
+
+def test_editor_more_collapsed_v027b():
+    print("\n=== test_editor_more_collapsed_v027b ===")
+    ed = PlanEditor(make_data(), lambda: None)
+    _show(ed)
+    assert_true(ed._more_toggle.isVisible(), "「⋯」常驻可见")
+    assert_not_visible(ed._more_container, "重置/导入/导出/预览 默认收起")
+    for name in ("reset_btn", "import_btn", "export_btn", "preview_btn"):
+        assert_true(hasattr(ed, name), f"{name} 还在（只是藏起来）")
+    ed._more_toggle.click()
+    app.processEvents()
+    assert_visible(ed.reset_btn, "展开后「重置」可见")
+    assert_visible(ed.import_btn, "展开后「导入」可见")
+    assert_visible(ed.export_btn, "展开后「导出」可见")
+    assert_visible(ed.preview_btn, "展开后「预览」可见")
+
+
+def test_editor_date_group_collapsed_v027b():
+    print("\n=== test_editor_date_group_collapsed_v027b ===")
+    ed = PlanEditor(make_data(), lambda: None)
+    _show(ed)
+    assert_eq(ed._date_toggle.isChecked(), False, "起始日期初始收起")
+    assert_not_visible(ed._date_body, "日期选择器默认不可见")
+    assert_true("▸" in ed._date_toggle.text(), "收起时显示 ▸")
+    ed._date_toggle.click()
+    app.processEvents()
+    assert_visible(ed.date_edit, "展开后日期选择器可见")
+    assert_true("▾" in ed._date_toggle.text(), "展开后显示 ▾")
+
+
+def test_editor_main_actions_still_visible_v027b():
+    print("\n=== test_editor_main_actions_still_visible_v027b ===")
+    ed = PlanEditor(make_data(), lambda: None)
+    _show(ed)
+    # 主操作（生成计划 / 开始执行）留在外面，不被折叠
+    assert_visible(_find_btn(ed, "生成计划"), "「生成计划」常驻")
+    assert_visible(_find_btn(ed, "开始执行 →"), "「开始执行 →」常驻")
+    assert_not_visible(_find_btn(ed, "预览"), "「预览」已收进「⋯」")
+    # 四个组（分类/计划/时段/日期）默认都是收起的
+    for attr in ("_parent_toggle", "_plan_toggle", "_slot_toggle", "_date_toggle"):
+        assert_eq(getattr(ed, attr).isChecked(), False, f"{attr} 默认收起")
+
+
 def main():
     test_editor_three_toggles_exist()
     test_editor_toggles_initially_collapsed()
@@ -427,6 +472,9 @@ def main():
     test_extra_button_hidden_at_zero_v027()
     test_queue_line_collapsed_v027()
     test_queue_not_in_advanced_v027()
+    test_editor_more_collapsed_v027b()
+    test_editor_date_group_collapsed_v027b()
+    test_editor_main_actions_still_visible_v027b()
     print(f"\n=== ALL TESTS PASSED ({PASS_COUNT} assertions) ===")
 
 

@@ -46,9 +46,9 @@ class PlanEditor(QWidget):
         title.setFont(QFont("Microsoft YaHei", 16, QFont.Bold))
         layout.addWidget(title)
 
-        # ============ 主题 + 导入/导出/重置 ============
+        # ============ 主题（常驻）+ 其余收进「⋯」（v0.27b 瘦身）============
         io_row = QHBoxLayout()
-        # 主题切换（最左，全局设置）
+        # 主题切换（全局设置，最左）
         theme_label = QLabel("主题:")
         io_row.addWidget(theme_label)
         from rollingplan import THEME_OPTIONS  # 避免循环引用
@@ -66,19 +66,45 @@ class PlanEditor(QWidget):
         self.theme_combo.currentIndexChanged.connect(self.on_theme_changed)
         io_row.addWidget(self.theme_combo)
         io_row.addStretch()
-        reset_btn = QPushButton("🔄 重置当前分类进度")
-        reset_btn.setStyleSheet("color: #666;")
-        reset_btn.clicked.connect(self.on_reset_progress)
-        io_row.addWidget(reset_btn)
-        import_btn = QPushButton("📥 导入 JSON")
-        import_btn.setStyleSheet("color: #666;")
-        import_btn.clicked.connect(self.on_import)
-        io_row.addWidget(import_btn)
-        export_btn = QPushButton("📤 导出 JSON")
-        export_btn.setStyleSheet("color: #666;")
-        export_btn.clicked.connect(self.on_export)
-        io_row.addWidget(export_btn)
+
+        # 「⋯」：重置进度 / 导入 / 导出 / 预览 都收在这里（默认收起）
+        self._more_toggle = QToolButton()
+        self._more_toggle.setText("⋯")
+        self._more_toggle.setCheckable(True)
+        self._more_toggle.setChecked(False)
+        self._more_toggle.setStyleSheet("QToolButton { border: none; }")
+        self._more_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._more_toggle.setToolTip("重置进度 / 导入 / 导出 / 预览")
+        self._more_toggle.clicked.connect(self._toggle_more)
+        io_row.addWidget(self._more_toggle)
         layout.addLayout(io_row)
+
+        self._more_container = QWidget()
+        more_row = QHBoxLayout(self._more_container)
+        more_row.setContentsMargins(0, 0, 0, 0)
+
+        self.reset_btn = QPushButton("🔄 重置当前分类进度")
+        self.reset_btn.setStyleSheet("color: #666;")
+        self.reset_btn.clicked.connect(self.on_reset_progress)
+        more_row.addWidget(self.reset_btn)
+
+        self.import_btn = QPushButton("📥 导入 JSON")
+        self.import_btn.setStyleSheet("color: #666;")
+        self.import_btn.clicked.connect(self.on_import)
+        more_row.addWidget(self.import_btn)
+
+        self.export_btn = QPushButton("📤 导出 JSON")
+        self.export_btn.setStyleSheet("color: #666;")
+        self.export_btn.clicked.connect(self.on_export)
+        more_row.addWidget(self.export_btn)
+
+        self.preview_btn = QPushButton("预览")
+        self.preview_btn.clicked.connect(self.preview_calendar)
+        more_row.addWidget(self.preview_btn)
+
+        more_row.addStretch()
+        self._more_container.setVisible(False)
+        layout.addWidget(self._more_container)
 
         # ============ 分类列表（默认收起）============
         # QGroupBox 的 checkable + checked=False 在 pyqtdarktheme 下不自动隐藏子 widget，
@@ -216,15 +242,26 @@ class PlanEditor(QWidget):
         slot_group_layout.addWidget(self._slot_body)
         layout.addWidget(slot_group)
 
-        # ============ 起始日期 ============
-        date_group = QGroupBox("起始日期")
-        date_layout = QHBoxLayout()
+        # ============ 起始日期（v0.27b：默认收起，跟其它三组一致）============
+        self._date_toggle = QToolButton()
+        self._date_toggle.setText("▸ 起始日期")
+        self._date_toggle.setCheckable(True)
+        self._date_toggle.setChecked(False)
+        self._date_toggle.setStyleSheet("QToolButton { border: none; padding: 4px; }")
+        self._date_toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self._date_toggle.clicked.connect(self._toggle_date_group)
+        layout.addWidget(self._date_toggle)
+
+        self._date_body = QWidget()
+        date_layout = QHBoxLayout(self._date_body)
+        date_layout.setContentsMargins(0, 0, 0, 0)
         self.date_edit = QDateEdit()
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setDate(QDate.currentDate())
         date_layout.addWidget(self.date_edit)
-        date_group.setLayout(date_layout)
-        layout.addWidget(date_group)
+        date_layout.addStretch()
+        self._date_body.setVisible(False)
+        layout.addWidget(self._date_body)
 
         # ============ 操作 ============
         btn_row = QHBoxLayout()
@@ -232,10 +269,6 @@ class PlanEditor(QWidget):
         save_btn.setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
         save_btn.clicked.connect(self.save_and_preview)
         btn_row.addWidget(save_btn)
-
-        preview_btn = QPushButton("预览")
-        preview_btn.clicked.connect(self.preview_calendar)
-        btn_row.addWidget(preview_btn)
 
         go_exec = QPushButton("开始执行 →")
         go_exec.clicked.connect(self.go_exec)
@@ -317,6 +350,16 @@ class PlanEditor(QWidget):
             self.data.current_parent_idx = idx + 1
             self.refresh_all()
             self.data.save()
+
+    def _toggle_more(self):
+        """v0.27b：重置进度 / 导入 / 导出 / 预览 的折叠开关"""
+        self._more_container.setVisible(self._more_toggle.isChecked())
+
+    def _toggle_date_group(self):
+        """v0.27b：起始日期折叠（跟其它三组一致的 ▸/▾ 交互）"""
+        checked = self._date_toggle.isChecked()
+        self._date_body.setVisible(checked)
+        self._date_toggle.setText("▾ 起始日期" if checked else "▸ 起始日期")
 
     def _toggle_parent_group(self):
         checked = self._parent_toggle.isChecked()
