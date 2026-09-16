@@ -96,6 +96,13 @@ class PlanEditor(QWidget):
         more_row = QHBoxLayout(self._more_container)
         more_row.setContentsMargins(0, 0, 0, 0)
 
+        self.restore_backup_btn = QPushButton("♻️ 恢复上次备份")
+        self.restore_backup_btn.setObjectName("rpGhost")
+        self.restore_backup_btn.setToolTip(
+            "把数据回滚到上一次保存前的状态（每次保存都会自动留一份上一代备份）")
+        self.restore_backup_btn.clicked.connect(self.on_restore_backup)
+        more_row.addWidget(self.restore_backup_btn)
+
         self.reset_btn = QPushButton("🔄 重置当前分类进度")
         self.reset_btn.setObjectName("rpGhost")
         self.reset_btn.clicked.connect(self.on_reset_progress)
@@ -610,6 +617,48 @@ class PlanEditor(QWidget):
         s.setValue(THEME_KEY, key)
 
     # ====== v0.4 导入/导出 ======
+
+    def on_restore_backup(self):
+        """v0.30 R23：一键恢复上一次保存前的数据（plan_data_backup）。
+
+        save() 每次写入前都会把上一代数据自动挪进 plan_data_backup，
+        所以这个入口能撤销「最近一次保存」造成的变化（误删分类/误导入等）。
+        恢复本身也会 save —— 被恢复掉的当前数据同样进 backup，可再次恢复（来回切）。
+        """
+        import json as _json
+        from theme import app_settings
+        s = app_settings()
+        backup = s.value("plan_data_backup")
+        if not backup:
+            QMessageBox.information(
+                self, "恢复备份", "还没有可用的备份（备份在第一次保存之后才会生成）。")
+            return
+        try:
+            data = _json.loads(backup)
+            if not isinstance(data, dict):
+                raise ValueError("备份不是 JSON 对象")
+        except Exception as e:
+            QMessageBox.warning(self, "恢复备份", "备份读不出来：{}".format(e))
+            return
+
+        try:
+            n_parents = len(data.get("parents", []))
+        except Exception:
+            n_parents = 0
+        reply = QMessageBox.question(
+            self, "确认恢复备份",
+            "把所有数据回滚到上一次保存前的状态（共 {} 个分类）？\n\n"
+            "当前数据也会被自动备份，可以再次「恢复」切回来。".format(n_parents),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
+        self.data.from_dict(data)
+        self.data.save()
+        if self.on_data_reloaded:
+            self.on_data_reloaded()
+        self.refresh_all()
+        QMessageBox.information(self, "恢复备份", "已恢复到上一次保存前的数据。")
 
     def on_reset_progress(self):
         """重置当前分类进度：current_day=0, borrowed_slots=[]。

@@ -162,7 +162,36 @@ def test_add_parent_cancel_creates_nothing():
        "正常输入：创建成功")
 
 
+def test_restore_backup_roundtrip():
+    print("\n=== test_restore_backup_roundtrip ===")
+    win = make_window()
+    p = win.data.current_parent
+    p.plans.append("任务3")
+    win.data.save()
+    ok("任务3" in app_settings().value("plan_data"), "前置：当前数据含任务3")
+
+    orig_q = QMessageBox.question
+    orig_i = QMessageBox.information
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    QMessageBox.information = staticmethod(lambda *a, **k: None)
+    try:
+        win.editor.on_restore_backup()
+        app.processEvents()
+        after1 = list(win.data.current_parent.plans)
+        win.editor.on_restore_backup()
+        app.processEvents()
+        after2 = list(win.data.current_parent.plans)
+    finally:
+        QMessageBox.question = orig_q
+        QMessageBox.information = orig_i
+
+    ok("任务3" not in after1 and after1 == ["任务1", "任务2"], "恢复后：数据回到上一次保存前")
+    ok(win.executor.scheduler.p is win.data.current_parent, "恢复后：executor 绑定同步")
+    ok("任务3" in after2, "再次恢复：可切回新版（来回可逆）")
+
+
 def main():
+    test_restore_backup_roundtrip()
     test_save_keeps_backup()
     test_corrupt_load_backed_up_and_reported()
     test_mainwindow_warns_and_quarantines()
