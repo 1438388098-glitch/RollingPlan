@@ -1496,6 +1496,7 @@ class PlanExecutor(QWidget):
         self.add_next_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.add_next_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 14px; border-radius: 6px;")
         self.add_next_btn.setMinimumHeight(50)
+        self.add_next_btn.setToolTip("从还没安排的队列里顺延一条  (Ctrl+Enter)")
         self.add_next_btn.clicked.connect(self.on_add_next)
         action_row.addWidget(self.add_next_btn)
 
@@ -1503,6 +1504,7 @@ class PlanExecutor(QWidget):
         self.done_btn.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
         self.done_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 14px; border-radius: 6px;")
         self.done_btn.setMinimumHeight(50)
+        self.done_btn.setToolTip("确认今天的安排全部结束,进入下一天  (Ctrl+D)")
         self.done_btn.clicked.connect(self.on_next_day)
         action_row.addWidget(self.done_btn)
 
@@ -1527,6 +1529,7 @@ class PlanExecutor(QWidget):
         # 次要按钮行：退回 + 添加指定
         sub_row = QHBoxLayout()
         self.return_btn = QPushButton("⤴ 退回")
+        self.return_btn.setToolTip("优先撤销今天最近一次「完成」,否则退额外轮最后一条  (Ctrl+Z)")
         self.return_btn.clicked.connect(self.on_return)
         sub_row.addWidget(self.return_btn)
         self.add_specific_btn = QPushButton("⋯ 添加指定")
@@ -2057,6 +2060,26 @@ class MainWindow(QMainWindow):
 
     def show_editor(self):
         self.tabs.setCurrentIndex(0)
+
+    def keyPressEvent(self, event):
+        """只在「执行计划」页激活时,把 Ctrl+Enter / Ctrl+D / Ctrl+Z 转给 executor。
+        其他页面 / 其他组合一律放行给 super()(制定页的输入框、Tab 切换、Esc 关对话框等都正常)。"""
+        if self.tabs.currentIndex() != 1:
+            super().keyPressEvent(event)
+            return
+        key = event.key()
+        mods = event.modifiers()
+        if mods & Qt.ControlModifier:
+            if key in (Qt.Key_Return, Qt.Key_Enter):
+                self.executor.on_add_next()
+                return
+            if key == Qt.Key_D:
+                self.executor.on_next_day()
+                return
+            if key == Qt.Key_Z:
+                self.executor.on_return()
+                return
+        super().keyPressEvent(event)
 
 
 # ============== 主题 ==============

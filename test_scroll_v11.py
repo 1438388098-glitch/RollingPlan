@@ -35,7 +35,8 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QDate, QSettings
+from PyQt5.QtCore import QDate, QSettings, Qt
+from PyQt5.QtTest import QTest
 
 _tmp = tempfile.mkdtemp(prefix="rollingplan_qsettings_")
 os.environ["XDG_CONFIG_HOME"] = _tmp
@@ -781,6 +782,79 @@ def test_executor_toggle_fixed_and_blocked():
     assert_eq(ex.scheduler.today_state()["rows"][1], ("中", "任务2"), "中被拦截，没动")
 
 
+# ============== 快捷键(v0.13+) ==============
+
+def test_keyboard_shortcuts_in_executor_tab():
+    """Ctrl+Enter / Ctrl+Z 在执行计划页生效;Ctrl+D 触发 on_next_day(带二次确认);
+    制定计划页 Ctrl+Enter / Ctrl+Z 不拦截。"""
+    print("\n=== test_keyboard_shortcuts_in_executor_tab ===")
+    from rollingplan import MainWindow
+
+    d = make_data(plan_count=9)
+    win = MainWindow()
+    # 注入我们的数据(覆盖默认的空 data)
+    win.data = d
+    win.executor = PlanExecutor(d, lambda: None)
+    win.tabs.removeTab(1)
+    win.tabs.addTab(win.executor, "▶ 执行计划")
+    win.tabs.setCurrentIndex(1)
+    win.show()
+    app.processEvents()
+
+    sched = win.executor.scheduler
+
+    # 1) Ctrl+Enter → on_add_next(多一条进额外轮)
+    extra_before = len(sched.today_state().get("extras", []))
+    QTest.keyClick(win, Qt.Key_Return, Qt.ControlModifier)
+    app.processEvents()
+    extra_after = len(sched.today_state().get("extras", []))
+    assert_eq(extra_after, extra_before + 1, "Ctrl+Enter 把队列下一条拉进额外轮")
+
+    # 2) Ctrl+Z → on_return(退掉刚才加的那条)
+    QTest.keyClick(win, Qt.Key_Z, Qt.ControlModifier)
+    app.processEvents()
+    assert_eq(len(sched.today_state().get("extras", [])), extra_before, "Ctrl+Z 退掉额外轮最后一条")
+
+    # 3) Ctrl+D → on_next_day(spy 验证被调用,不真正触发模态 QMessageBox.question,
+    #     避免 headless offscreen 下阻塞。生产环境下弹窗由用户点确认/取消)
+    next_day_calls = [0]
+    def spy_next_day():
+        next_day_calls[0] += 1
+    original_next_day = win.executor.on_next_day
+    win.executor.on_next_day = spy_next_day
+    QTest.keyClick(win, Qt.Key_D, Qt.ControlModifier)
+    app.processEvents()
+    win.executor.on_next_day = original_next_day
+    assert_eq(next_day_calls[0], 1, "Ctrl+D 触发 executor.on_next_day(由弹窗确认是否切天)")
+
+    # 4) 无 Ctrl 的 Z/D/Enter 必须不触发快捷键(避免吞掉文本框常用键)
+    leaked = {"hit": False}
+    def fake_return():
+        leaked["hit"] = True
+    def fake_add_next():
+        leaked["hit"] = True
+    original_return = win.executor.on_return
+    original_add = win.executor.on_add_next
+    win.executor.on_return = fake_return
+    win.executor.on_add_next = fake_add_next
+    QTest.keyClick(win, Qt.Key_Z)
+    QTest.keyClick(win, Qt.Key_Return)
+    app.processEvents()
+    win.executor.on_return = original_return
+    win.executor.on_add_next = original_add
+    assert_true(not leaked["hit"], "无 Ctrl 时 Z / Enter 不触发快捷键")
+
+    # 5) 制定计划页 Ctrl+Enter / Ctrl+Z 必须不拦截(避免吞掉输入框常用组合)
+    win.tabs.setCurrentIndex(0)
+    app.processEvents()
+    extras_pre_editor = len(sched.today_state().get("extras", []))
+    QTest.keyClick(win, Qt.Key_Return, Qt.ControlModifier)
+    QTest.keyClick(win, Qt.Key_Z, Qt.ControlModifier)
+    app.processEvents()
+    assert_eq(len(sched.today_state().get("extras", [])), extras_pre_editor,
+              "制定计划页按 Ctrl+Enter / Ctrl+Z 不生效")
+
+
 def main():
     test_complete_only_does_not_scroll()
     test_complete_only_twice_is_rejected()
@@ -825,6 +899,7 @@ def main():
     test_next_day_clears_fixed_blocked()
     test_executor_renders_toggle_buttons()
     test_executor_toggle_fixed_and_blocked()
+    test_keyboard_shortcuts_in_executor_tab()
 
     print()
     print(f"PASS={PASS_COUNT}  FAIL={FAIL_COUNT}")
