@@ -2,7 +2,7 @@
 
 > **最后更新**：2026-09-16 20:20
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **代码最新在**：分支 `autopilot/ff8a6b1c05d4`（v0.26~v0.28 极简改造，`main` 还没合并这批）
+> **代码最新在**：`main`（v0.26~v0.28 极简改造已 ff 合并进来；本轮 commit 在 `autopilot/e80c1c2c58a6`）
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
 > **现在处在哪一步**：v0.28 的**极简界面改造做完了**（执行页/制定页/归档页都瘦过一轮）；
 > 待办 = **真机验收 + 重新打包 exe**（exe 还是 v0.25 的，代码已经走到 v0.28）
@@ -29,7 +29,7 @@ PyQt5 桌面应用。**v0.22**：「日常计划管理」——计划是一列**
 | `autopilot/65dba054e425` | v0.20 修 Ctrl+Shift+Z·Ctrl+Y 未绑 / v0.21 抽 executor.py / v0.22 归档按天分组 | `7321579` |
 | `autopilot/a1f32a7e7932` | v0.22b 切天可撤销 / 归档导出文本 / 测试脚本进仓库 | `e7b4a00` |
 | `autopilot/348240aadc58` | v0.23~v0.25 剩余天数估算 / 按天折叠 / 全部分类汇总 / 文件名清洗 / README 更新 | `aa2267a` |
-| `autopilot/ff8a6b1c05d4` | **v0.26~v0.28 极简界面改造**（执行页顶栏 / 每格一个按钮 / 0 条不显示 / 队列一行化 / 制定页 / 归档页） | 见下 |
+| `autopilot/e80c1c2c58a6` | **v0.26~v0.28 极简界面改造**（执行页顶栏 / 每格一个按钮 / 0 条不显示 / 队列一行化 / 制定页 / 归档页） | 已 ff 合并进 main |
 
 这些分支的提交都在 main 里，本地留着只是当书签；要清理就 `git branch -d autopilot/*`（**别在
 autopilot run 还开着的时候删**）。下一轮迭代直接 `cd` 进仓库、对着 main 开跑，不用再管这条链。
@@ -157,7 +157,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 | iter-2b | `autopilot/65dba054e425` | v0.20~v0.22（修 redo 未绑 / 抽 executor / 归档按天分组） | 3 |
 | iter-3 | `autopilot/a1f32a7e7932` | v0.22b（切天可撤销 / 归档导出 / 测试脚本进仓库） | 3 |
 | iter-4 | `autopilot/348240aadc58` | v0.23~v0.25（剩余天数估算 / 按天折叠 / 全部分类汇总 / 文件名清洗 / README） | 5 |
-| iter-5 | `autopilot/ff8a6b1c05d4` | **v0.26~v0.28 极简界面改造**（用户验收反馈：「功能没问题，但界面太杂乱、分散注意力」） | 5 |
+| iter-5 | `autopilot/e80c1c2c58a6` | **v0.26~v0.28 极简界面改造**（用户验收反馈：「功能没问题，但界面太杂乱、分散注意力」） | 5 |
 
 每个 run 的状态留在仓库的 `.autopilot/`（`state.json` / `backlog.json` / `retrospective.md` /
 `last-summary.md`；未跟踪、不推远端）。**下一轮要开新 run**：
