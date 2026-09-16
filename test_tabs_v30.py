@@ -144,8 +144,27 @@ def test_calendar_refresh_on_tab_change():
     ok(len(counter) == 1, "切到执行页不误刷归档页")
 
 
+def test_ctrl_num_switches_pages():
+    print("\n=== test_ctrl_num_switches_pages ===")
+    from PyQt5.QtTest import QTest
+    win = fresh_window()
+    win.show()
+    app.processEvents()
+    win.tabs.setCurrentIndex(0)
+    QTest.keyClick(win, Qt.Key_2, Qt.ControlModifier)
+    app.processEvents()
+    ok(win.tabs.currentIndex() == 1, "Ctrl+2 切到执行页")
+    QTest.keyClick(win, Qt.Key_3, Qt.ControlModifier)
+    app.processEvents()
+    ok(win.tabs.currentIndex() == 2, "Ctrl+3 切到归档页")
+    QTest.keyClick(win, Qt.Key_1, Qt.ControlModifier)
+    app.processEvents()
+    ok(win.tabs.currentIndex() == 0, "Ctrl+1 切回制定页")
+
+
 def main():
     test_initial_layout()
+    test_ctrl_num_switches_pages()
     test_go_exec_keeps_executor_at_index_1()
     test_repeated_go_exec_no_tab_growth()
     test_keyboard_gate_follows_widget_identity()

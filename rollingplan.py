@@ -23,7 +23,8 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QDialog, QScrollArea,
 )
 from PyQt5.QtCore import Qt, QDate, QSettings
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtWidgets import QShortcut
 
 # 主题:QSS 字符串 + apply_theme 抽到独立模块(v0.14 重构,行为完全等价)
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
@@ -544,7 +545,14 @@ class MainWindow(QMainWindow):
             )
         self._start_backup_if_needed()
         self.setWindowTitle("日常计划管理")
-        self.setGeometry(100, 100, 950, 850)
+        # v0.30 R12（审计 P2-9）：初始尺寸适配屏幕（1366x768 笔记本上 850 高会超屏）
+        _screen = QApplication.primaryScreen()
+        if _screen is not None:
+            _avail = _screen.availableGeometry()
+            self.resize(min(950, _avail.width() - 40), min(850, _avail.height() - 40))
+        else:
+            self.resize(950, 850)
+        self.setMinimumSize(720, 520)
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
@@ -561,6 +569,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.calendar_view, "📊 归档总览")
         # 第三页激活时也要能刷新（用户在第三页时执行页可能完成了一条）
         self.tabs.currentChanged.connect(self._on_tab_changed)
+
+        # v0.30 R12（审计 P1-11）：Ctrl+1/2/3 直接切页 —— QShortcut 挂在窗口上，
+        # 不依赖焦点链，任何控件拿到焦点都好使
+        for _i in range(3):
+            QShortcut(QKeySequence("Ctrl+{}".format(_i + 1)), self,
+                      lambda idx=_i: self.tabs.setCurrentIndex(idx))
 
     def _on_tab_changed(self, idx):
         """切页时刷新目标页 —— 用户可能在前一页改了数据。
