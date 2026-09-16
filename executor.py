@@ -167,6 +167,8 @@ class PlanExecutor(QWidget):
         # - undo_btn   = 新「撤销」按钮（撤任意最近动作，含加/退/固定/拦截；通用 history 栈）
         # - redo_btn   = 新「重做」按钮（can_redo 时才显示）
         sub_row = QHBoxLayout()
+        # v0.30 R33（走查 #3）：撤销/重做移出「更多」折叠区 —— 有可撤动作时
+        # 它们会在主按钮行上方常驻显现（后悔药必须看得见）
         self.return_btn = QPushButton("⤴ 退回")
         self.return_btn.setToolTip(
             "旧「退回」入口已由「撤销」统一取代（撤销同样能撤完成/退额外安排）。保留对象给老测试。")
@@ -174,21 +176,34 @@ class PlanExecutor(QWidget):
         self.return_btn.setVisible(False)   # v0.30 R17（审计 P1-3）：不再作为 UI 入口
         self.return_btn.setParent(self.advanced_container)
         self.undo_btn = QPushButton("↶ 撤销")
-        self.undo_btn.setToolTip("撤销任意最近动作（完成/退回/添加/固定/拦截）(Ctrl+Shift+Z)")
+        self.undo_btn.setToolTip("撤销任意最近动作（完成/添加/固定/拦截）(Ctrl+Z)")
+        self.undo_btn.setObjectName("rpGhost")
         self.undo_btn.clicked.connect(self.on_undo)
         self.undo_btn.setVisible(False)
-        sub_row.addWidget(self.undo_btn)
         self.redo_btn = QPushButton("↷ 重做")
         self.redo_btn.setToolTip("重做刚被撤销的动作 (Ctrl+Shift+Z)")
+        self.redo_btn.setObjectName("rpGhost")
         self.redo_btn.clicked.connect(self.on_redo)
         self.redo_btn.setVisible(False)
-        sub_row.addWidget(self.redo_btn)
+
+        # 「添加指定」仍留在「更多」里
         self.add_specific_btn = QPushButton("⋯ 添加指定")
         self.add_specific_btn.setObjectName("rpGhost")
         self.add_specific_btn.clicked.connect(self.on_add_specific)
         sub_row.addWidget(self.add_specific_btn)
         sub_row.addStretch()
         adv_layout.addLayout(sub_row)
+
+        # 撤销/重做细行：贴在主按钮行上方，无动作可撤时整行隐藏（零占位）
+        self.quick_container = QWidget()
+        quick_row = QHBoxLayout(self.quick_container)
+        quick_row.setContentsMargins(0, 0, 0, 0)
+        quick_row.setSpacing(8)
+        quick_row.addStretch()
+        quick_row.addWidget(self.undo_btn)
+        quick_row.addWidget(self.redo_btn)
+        self.quick_container.setVisible(False)
+        layout.addWidget(self.quick_container)
 
         # ============ 计划队列（v0.27：底部一行，点开才展开）============
         self.queue_toggle = QToolButton()
@@ -534,6 +549,9 @@ class PlanExecutor(QWidget):
             self.undo_btn.setEnabled(False)
         self.redo_btn.setVisible(self.scheduler.p.can_redo())
         self.redo_btn.setEnabled(self.scheduler.p.can_redo())
+        # R33：有可撤/可重做动作时整行显现
+        self.quick_container.setVisible(
+            self.scheduler.p.can_undo() or self.scheduler.p.can_redo())
         # v0.30 R30（审计 P1-13）：置灰必须说清原因
         can_add = self.scheduler.can_borrow_next()
         self.add_next_btn.setEnabled(can_add)
