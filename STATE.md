@@ -11,7 +11,7 @@
 > **现在处在哪一步**：**v0.30 推倒重设计完成（R1~R22）**：设计系统 token 化、三个 P0
 > （页签错位/导入取消丢数据/读档失败静默）、三页卡片化重设计、动效 v2、存储迁移 INI、
 > 易用性批量修复；**17 个测试文件 530 断言 + 116 用例全绿**；
-> 待办 = **真机验收 + push（本地 main 领先远端 20+ 提交）**
+> 待办 = **真机验收 + push（本地 main 领先远端 30+ 提交）**
 
 ## 项目一句话
 
@@ -64,6 +64,9 @@ git push origin main        # 没配 credential.helper，git 会自己读 ~/.net
 |  | R9 P0 数据安全包（读档失败弹窗+损坏转存 ~/.hermes_cache 时间戳备份+坏数据隔离；save 留一代 plan_data_backup；删除计划/时段确认；取消不偷建分类；test_data_safety_v30）|
 |  | R10 存储迁移（QSettings 显式 IniFormat 四参构造，Windows 不再写注册表；load 一次性迁移注册表旧数据；测试隔离随之真正生效）|
 |  | R11 归档页排版统一；R12 Ctrl+1/2/3 切页 + 窗口自适应小屏；R13 逻辑毛刺（额外安排锁改当前分类粒度/切天列具体条目+防连刷/重复时段编号）；R14 深色可读性（darkGreen→token、palette 假跟主题→token、rp-note-detail 透明）；R15 安全默认（三处确认默认否）；R16 动效收口（删整页切页特效/时长归 MOTION/fade_out/主题切换缓冲/菜单淡入）；R17 撤销入口统一（旧退回退隐）；R18 术语统一（额外轮→额外安排/报错人话/主题下拉同步）；R19 字号间距清账（23 处 QFont 清零/4px 网格/边距统一）；R20 工具链 Windows 兼容（venv Scripts 布局/PYTHONUTF8/循环导入清理）；R21 制定页 22 动作冒烟测试（test_editor_smoke_v30）；R22 本文档轮 |
+|  | R23~R31（expansion）一键恢复上次备份（可来回切/选代数）、分类名唯一性、无选中提示、列表高度+保选保滚动、双击编辑、窗口标题带分类+启动居中、3 代备份环、禁用按钮原因提示 |
+|  | R32~R34（走查审计 Top 修复）：「✓ 今天完成」→「⏭ 结束今天 →」、引导条指路折叠、「保存并预览」让主样式给「开始执行 →」、删除按钮 rpDangerGhost、撤销/重做移出折叠区常驻显现、完成后状态行闪 success 色 |
+|  | R35 重新打包 exe（39,050,053 字节，Python 3.13 + PyInstaller，含 v0.30 全部改动；仍未真机启动验证）|
 | v0.29 | **全局动效**：新模块 `animations.py`（165 行）统一收口 —— `fade_in()` / `toggle_section()`（maximumHeight 高度动画）。接入：切页淡入（MainWindow._on_tab_changed）/ 执行页「更多」+ 队列行、制定页五组、归档页「⋯」折叠区高度展开收起 / 完成并滚动·切天·切分类 后 day_container 轻淡入 / 额外安排按钮·归档「今天完成」·制定页预览区 从无到有时浮现 / ExtraArrangementsDialog 弹出淡入。OutCubic + 150~220ms；特效动完即摘；同控件同动画重触发先 disconnect+stop（中途反转不跳变）；**`QT_QPA_PLATFORM=offscreen` 下 enabled() 恒 False，禁用路径 = 一句 setVisible** → 测试行为与 v0.28 一致（11 文件全绿 + dump 逐字节相同已验证）。executor 新存 `self.day_container` 引用 + `_extra_btn_was_visible` 追踪；calendar_view 的 today_group 可见性统一走 `_set_today_group_visible()` |
 | v0.28b | **修 bug**：`editor.py` 缺 `QInputDialog` / `QFileDialog` 的 import —— 新建分类 / 重命名 / 编辑计划 / 编辑时段 / 导入 / 导出 一点就 NameError（v0.17 抽分文件时丢的；测试没盖住这几条 UI 路径所以一直全绿没暴露） |
 | v0.26 | **执行页顶栏极简**：默认只剩「更多」+ 分类名（切换分类/主题/返回制定 收进折叠区）；日期/进度/今天完成 三行并成两行 |
