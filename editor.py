@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 
 from scheduler import PlanScheduler
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
+import animations
 
 # PlanData 类型提示用（避免循环 import：rollingplan.py 会 import editor）
 from typing import TYPE_CHECKING
@@ -355,28 +356,28 @@ class PlanEditor(QWidget):
             self.data.save()
 
     def _toggle_more(self):
-        """v0.27b：重置进度 / 导入 / 导出 / 预览 的折叠开关"""
-        self._more_container.setVisible(self._more_toggle.isChecked())
+        """v0.27b：重置进度 / 导入 / 导出 / 预览 的折叠开关（v0.29：带高度动画）"""
+        animations.toggle_section(self._more_container, self._more_toggle.isChecked())
 
     def _toggle_date_group(self):
-        """v0.27b：起始日期折叠（跟其它三组一致的 ▸/▾ 交互）"""
+        """v0.27b：起始日期折叠（v0.29：带高度动画）"""
         checked = self._date_toggle.isChecked()
-        self._date_body.setVisible(checked)
+        animations.toggle_section(self._date_body, checked)
         self._date_toggle.setText("▾ 起始日期" if checked else "▸ 起始日期")
 
     def _toggle_parent_group(self):
         checked = self._parent_toggle.isChecked()
-        self._parent_body.setVisible(checked)
+        animations.toggle_section(self._parent_body, checked)
         self._parent_toggle.setText("▾ 计划分类" if checked else "▸ 计划分类")
 
     def _toggle_plan_group(self):
         checked = self._plan_toggle.isChecked()
-        self._plan_body.setVisible(checked)
+        animations.toggle_section(self._plan_body, checked)
         self._plan_toggle.setText("▾ 计划清单" if checked else "▸ 计划清单")
 
     def _toggle_slot_group(self):
         checked = self._slot_toggle.isChecked()
-        self._slot_body.setVisible(checked)
+        animations.toggle_section(self._slot_body, checked)
         self._slot_toggle.setText("▾ 时段" if checked else "▸ 时段")
 
     def refresh_all(self):
@@ -655,6 +656,7 @@ class PlanEditor(QWidget):
                 lines.append(f"  {m} {sname}: {plan if plan else '(空)'}")
         self.preview_area.setText("\n".join(lines))
         self.preview_area.setVisible(True)   # v0.28：有内容才占版面
+        animations.fade_in(self.preview_area, 180)   # v0.29：预览区浮现
 
     def go_exec(self):
         cp = self.data.current_parent

@@ -1,11 +1,16 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-16 20:20
+> **最后更新**：2026-09-16 22:30（协作者克隆轮：v0.28b import 修复 + v0.29 全局动效）
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **代码最新在**：`main`（v0.26~v0.28 极简改造已 ff 合并进来；本轮 commit 在 `autopilot/e80c1c2c58a6`）
+> ⚠️ 上面两个是原作者机器的路径。**协作者克隆在 `D:\Claudeworkspace\RollingPlan`**
+> （origin = 1438388098-glitch/RollingPlan 的 fork，upstream = yM7-1/RollingPlan，有 write 权限）。
+> 本机跑测试：`ROLLINGPLAN_PYTHON="$(which python)" bash run_all_tests.sh`
+> （`python` = Anaconda 3.6.5 + PyQt5，实测 11 个文件全过）。
+> **代码最新在**：本地 `main`（v0.28b + v0.29 动效，**领先 origin/main 2 个提交，待 push**）
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
-> **现在处在哪一步**：v0.28 的**极简界面改造做完了**（执行页/制定页/归档页都瘦过一轮）；
-> 待办 = **真机验收 + 重新打包 exe**（exe 还是 v0.25 的，代码已经走到 v0.28）
+> **现在处在哪一步**：v0.28 极简改造 + **v0.29 全局动效**（`animations.py`，offscreen 自动禁用）
+> 都已落地，11 个测试文件全绿、`dump_minimal_view.py` 输出逐字节不变；
+> 待办 = **真机验收（现在连动效一起验）+ push**
 
 ## 项目一句话
 
@@ -46,8 +51,11 @@ git push origin main        # 没配 credential.helper，git 会自己读 ~/.net
 
 | 版本 | 内容 |
 |------|------|
-| v0.13 | Ctrl+Enter / Ctrl+D / Ctrl+Z 接管执行页三大主操作；补 v0.9 队列模型边界回归测试（41 断言） |
+| v0.29 | **全局动效**：新模块 `animations.py`（165 行）统一收口 —— `fade_in()` / `toggle_section()`（maximumHeight 高度动画）。接入：切页淡入（MainWindow._on_tab_changed）/ 执行页「更多」+ 队列行、制定页五组、归档页「⋯」折叠区高度展开收起 / 完成并滚动·切天·切分类 后 day_container 轻淡入 / 额外安排按钮·归档「今天完成」·制定页预览区 从无到有时浮现 / ExtraArrangementsDialog 弹出淡入。OutCubic + 150~220ms；特效动完即摘；同控件同动画重触发先 disconnect+stop（中途反转不跳变）；**`QT_QPA_PLATFORM=offscreen` 下 enabled() 恒 False，禁用路径 = 一句 setVisible** → 测试行为与 v0.28 一致（11 文件全绿 + dump 逐字节相同已验证）。executor 新存 `self.day_container` 引用 + `_extra_btn_was_visible` 追踪；calendar_view 的 today_group 可见性统一走 `_set_today_group_visible()` |
+| v0.28b | **修 bug**：`editor.py` 缺 `QInputDialog` / `QFileDialog` 的 import —— 新建分类 / 重命名 / 编辑计划 / 编辑时段 / 导入 / 导出 一点就 NameError（v0.17 抽分文件时丢的；测试没盖住这几条 UI 路径所以一直全绿没暴露） |
+| v0.26 | **执行页顶栏极简**：默认只剩「更多」+ 分类名（切换分类/主题/返回制定 收进折叠区）；日期/进度/今天完成 三行并成两行 |
 | v0.14 | 抽出 `theme.py`（QSS + apply_theme），零行为变化 |
+| v0.13 | Ctrl+Enter / Ctrl+D / Ctrl+Z 接管执行页三大主操作；补 v0.9 队列模型边界回归测试（41 断言） |
 | v0.15 | 抽出 `scheduler.py`（`PlanScheduler` + `_pending_of`） |
 | v0.16 | **撤销栈**：`push_history()` / `undo()` / `redo()`，可撤任意最近动作（加 / 退 / 完成 / 固定 / 拦截），上限 50 |
 | v0.17 | 抽出 `editor.py`（`PlanEditor` 单文件 UI） |
@@ -70,15 +78,16 @@ git push origin main        # 没配 credential.helper，git 会自己读 ~/.net
 
 v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成并滚动 / 队列模型）见 git 历史里 `main` 的提交。
 
-## 文件与行数（v0.25）
+## 文件与行数（v0.29）
 
 | 文件 | 行数 | 职责 |
 |------|------|------|
-| `rollingplan.py` | 614 | `ParentPlan` / `PlanData` / `MainWindow`（数据模型 + 主窗口，编辑器 / 执行器 / 归档页都从这里 re-export） |
-| `executor.py` | 787 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog` |
-| `editor.py` | 621 | `PlanEditor`（制定计划页） |
+| `executor.py` | 876 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog`；v0.29 存 `day_container` 引用、额外安排按钮浮现追踪、对话框 showEvent 淡入 |
+| `editor.py` | 670 | `PlanEditor`（制定计划页）；五组折叠走 `animations.toggle_section` |
+| `calendar_view.py` | 661 | `PlanCalendarView`（归档总览）+ 纯函数；today_group 可见性统一走 `_set_today_group_visible()`（浮现动效） |
+| `rollingplan.py` | 618 | `ParentPlan` / `PlanData` / `MainWindow`；v0.29 切页淡入 |
 | `scheduler.py` | 565 | `PlanScheduler`（队列 / 当天行 / 完成 / 滚动 / 额外轮的算法都在这儿） |
-| `calendar_view.py` | 619 | `PlanCalendarView`（归档总览：按天分组 + 折叠 + 全部分类 + 导出）+ 纯函数 `build_archive_text` / `build_all_archive_text` / `estimate_days_left` / `summarize_all` / `safe_filename` |
+| `animations.py` | 165 | **v0.29 全局动效**：`fade_in` / `toggle_section`（maximumHeight 高度动画）/ 动画重触发防跳变 / offscreen 自动禁用 |
 | `theme.py` | 388 | 三套 QSS + `apply_theme` |
 
 ## 测试状态
@@ -209,6 +218,17 @@ python3 ~/.hermes/skills/auto-iterate-project/scripts/autopilot_state.py init --
 
 ## 备忘（改代码前先看）
 
+- **v0.29 动效三条铁律**（改 UI 前先看）：
+  1. **offscreen 恒禁用**：`animations.enabled()` 见 `QT_QPA_PLATFORM=offscreen` 就 False，
+     禁用路径 = 一句 `setVisible`。**测试 / dump_minimal_view 必须永远走这条路** ——
+     别在测试里开动效，别把折叠逻辑从 `toggle_section` 换回裸 `setVisible`（裸写反而不一致）。
+  2. **特效用完即摘**：`fade_in` 结束回调里 `setGraphicsEffect(None)`；
+     别对长期存在的控件挂透明度特效不管（渲染走光栅化路径，挂着有开销）。
+  3. **同控件同动画重触发**：`_stop_old()` 先 `finished.disconnect()` 再 `stop()` ——
+     不 disconnect 的话旧动画 stop 会触发它的 finished 回调（比如把刚要展开的区域又藏回去），
+     折叠/展开来回快点会跳变。
+  冒烟脚本（桌面模式验证动画真在动，临时可删）：`/tmp/rp_anim_smoke.py`，
+  跑法 `PYTHONPATH=<仓库> python /tmp/rp_anim_smoke.py`。
 - **跑 autopilot 的硬流程：`begin-round` → 干活 → `commit` → `complete-round`**。
   漏掉 `begin-round` 时 `commit` 会拒绝（`[ERROR] No round is open`），但改动会留在暂存区、
   `complete-round` 却可能已经把轮次记上 —— 就会出现「轮次 +1 但没有 commit」的不一致。

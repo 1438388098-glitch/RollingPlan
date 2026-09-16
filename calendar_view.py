@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 )
 
 from scheduler import PlanScheduler
+import animations
 
 # v0.24：下拉里代表「所有分类合起来看」的那一项
 ALL_PARENTS_LABEL = "（全部分类）"
@@ -330,6 +331,8 @@ class PlanCalendarView(QWidget):
         today_inner.addWidget(self.today_label)
         self.today_group.setLayout(today_inner)
         layout.addWidget(self.today_group)
+        # v0.29：追踪可见性 —— 今天完成块「从无到有」浮现时给淡入
+        self._today_group_was_visible = False
 
         self.setLayout(layout)
 
@@ -512,8 +515,16 @@ class PlanCalendarView(QWidget):
         self._refresh_view()
 
     def _on_toggle_more(self):
-        """v0.28：导出 / 全部展开 的折叠开关"""
-        self.more_container.setVisible(self.more_toggle.isChecked())
+        """v0.28：导出 / 全部展开 的折叠开关（v0.29：带高度动画）"""
+        animations.toggle_section(self.more_container, self.more_toggle.isChecked())
+
+    def _set_today_group_visible(self, visible):
+        """v0.29：统一走这里改「今天完成」组的可见性 —— 从无到有时淡入浮现。"""
+        appearing = visible and not self._today_group_was_visible
+        self.today_group.setVisible(visible)
+        self._today_group_was_visible = visible
+        if appearing:
+            animations.fade_in(self.today_group, 180)
 
     def _on_toggle_all(self):
         """「全部展开」↔「全部收起」（清掉单独点过的状态）。"""
@@ -531,7 +542,7 @@ class PlanCalendarView(QWidget):
             self.estimate_label.setText("")
             self.archive_list.clear()
             self.today_label.setText("（无分类）")
-            self.today_group.setVisible(False)
+            self._set_today_group_visible(False)
             return
 
         n, total, done, remaining, spd, days_left = summarize_all(parents)
@@ -573,7 +584,7 @@ class PlanCalendarView(QWidget):
             "\n".join(today_lines) if today_lines else "（今天还没完成任何计划）"
         )
         # v0.28：全部分类视图下，没有任何分类今天有完成 → 这一块收掉
-        self.today_group.setVisible(bool(today_lines))
+        self._set_today_group_visible(bool(today_lines))
 
     def _refresh_view(self):
         """拉一遍 scheduler 数据填进控件。"""
@@ -585,7 +596,7 @@ class PlanCalendarView(QWidget):
             self.estimate_label.setText("")
             self.archive_list.clear()
             self.today_label.setText("（无分类）")
-            self.today_group.setVisible(False)
+            self._set_today_group_visible(False)
             return
         p = self.scheduler.p
         done, total = self.scheduler.get_progress()
@@ -628,7 +639,9 @@ class PlanCalendarView(QWidget):
         else:
             self.today_label.setText("（今天还没完成任何计划）")
         # v0.28：没内容就把整组收掉
-        self.today_group.setVisible(bool(done_today) or bool(getattr(p, "slot_notes", None) and any(p.slot_notes)))
+        self._set_today_group_visible(
+            bool(done_today) or bool(getattr(p, "slot_notes", None) and any(p.slot_notes))
+        )
 
         # 每格的归档备注汇总
         notes = getattr(p, "slot_notes", None) or []

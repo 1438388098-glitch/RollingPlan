@@ -27,6 +27,7 @@ from PyQt5.QtGui import QFont
 # 主题:QSS 字符串 + apply_theme 抽到独立模块(v0.14 重构,行为完全等价)
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
 from theme import DARK_QSS, LIGHT_QSS  # 向后兼容:test_theme_v05.py 直接 import 这两个常量
+import animations
 
 
 # ============== 数据模型 ==============
@@ -498,6 +499,9 @@ class MainWindow(QMainWindow):
         """切到归档总览页时刷一次 —— 用户可能在前两页完成了计划。"""
         if idx == 2:
             self.calendar_view.refresh()
+        # v0.29：切页淡入（idx=-1 是初始状态，不动；offscreen 下自动禁用）
+        if idx >= 0:
+            animations.fade_in(self.tabs.widget(idx), 170)
 
     def reload_executor(self):
         """v0.4：导入数据后重建 executor 引用新的 PlanData"""

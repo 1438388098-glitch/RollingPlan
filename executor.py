@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 from scheduler import PlanScheduler, _pending_of
 from theme import apply_theme, THEME_KEY, THEME_OPTIONS
+import animations
 
 if TYPE_CHECKING:
     # 仅给 type checker 看,运行时不会评估,避免循环 import
@@ -127,6 +128,7 @@ class PlanExecutor(QWidget):
         self.day_layout.setAlignment(Qt.AlignCenter)  # 内容垂直居中
         day_container = QWidget()
         day_container.setLayout(self.day_layout)
+        self.day_container = day_container   # v0.29：存引用 —— 完成/切天后给它淡入反馈
         layout.addWidget(day_container, stretch=1)
 
         # ============ 额外安排：细长条按钮（在两大按钮上方）============
@@ -141,6 +143,7 @@ class PlanExecutor(QWidget):
         )
         self.extra_btn.setCursor(Qt.PointingHandCursor)
         self.extra_btn.clicked.connect(self.on_show_extras)
+        self._extra_btn_was_visible = False   # v0.29：追踪出现时机（0 → N 条时给浮现动效）
         layout.addWidget(self.extra_btn)
 
         # ============ 主操作大按钮（两个并列、加大高度）============
@@ -225,15 +228,15 @@ class PlanExecutor(QWidget):
         self.setLayout(layout)
 
     def _toggle_queue(self):
-        """v0.27：展开/收起底部的计划队列"""
+        """v0.27：展开/收起底部的计划队列（v0.29：带高度动画）"""
         checked = self.queue_toggle.isChecked()
-        self.queue_container.setVisible(checked)
+        animations.toggle_section(self.queue_container, checked)
         self.queue_toggle.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
 
     def _toggle_advanced(self):
-        """切换「更多」折叠区显示"""
+        """切换「更多」折叠区显示（v0.29：带高度动画）"""
         checked = self.advanced_toggle.isChecked()
-        self.advanced_container.setVisible(checked)
+        animations.toggle_section(self.advanced_container, checked)
         self.advanced_toggle.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
 
     def on_theme_changed(self, idx):
@@ -520,6 +523,10 @@ class PlanExecutor(QWidget):
         self.extra_btn.setEnabled(True)
         # v0.27：0 条时这个按钮根本不出现（有额外安排才冒出来）
         self.extra_btn.setVisible(count > 0)
+        # v0.29：按钮从无到有冒出来的那一刻给一次淡入（刷新别的不动）
+        if count > 0 and not self._extra_btn_was_visible:
+            animations.fade_in(self.extra_btn, 160)
+        self._extra_btn_was_visible = count > 0
 
         # 按钮启用状态 + 文案
         # v0.16：return_btn = 老「退回」按钮（仅撤今天完成 / 退额外轮最后一条）,逻辑保持 v0.15 不变。
@@ -662,6 +669,7 @@ class PlanExecutor(QWidget):
         if self.scheduler.complete_today_slot(slot_idx):
             self.data.save()
             self.refresh()
+            animations.fade_in(self.day_container, 150)   # v0.29：滚动后整块轻淡入一下
 
     def on_next_day(self):
         p = self.data.current_parent
@@ -705,6 +713,7 @@ class PlanExecutor(QWidget):
         p.normalize()
         self.data.save()
         self.refresh()
+        animations.fade_in(self.day_container, 170)   # v0.29：新的一天，内容轻淡入
 
     def on_switch_parent(self):
         """切换分类"""
@@ -720,6 +729,7 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.scheduler = PlanScheduler(self.data.current_parent)
             self.refresh()
+            animations.fade_in(self.day_container, 170)   # v0.29：换了分类，内容轻淡入
 
 
 # ============== 额外安排 列表（v0.12） ==============
@@ -770,6 +780,11 @@ class ExtraArrangementsDialog(QDialog):
         outer.addLayout(btns)
 
         self.rebuild()
+
+    def showEvent(self, event):
+        """v0.29：对话框弹出时轻淡入（offscreen 下自动禁用）"""
+        super().showEvent(event)
+        animations.fade_in(self, 150)
 
     # ---------- 列表渲染 ----------
 
