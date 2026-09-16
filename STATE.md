@@ -66,7 +66,17 @@ v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成�
 跑法（**用这个脚本，别单个跑**）：
 
 ```bash
-/mnt/d/0-task/rollingplan/run_all_tests.sh   # 退出码 0 = 全过；每个文件的输出在 /tmp/rollingplan-test-<文件名>.log
+cd /mnt/d/0_git/RollingPlan
+bash run_all_tests.sh        # 退出码 0 = 全过 / 1 = 有失败 / 2 = 环境不对（找不到带 PyQt5 的 python）
+```
+
+脚本会自己挑解释器（`ROLLINGPLAN_PYTHON` > 本目录 `.venv` > 验收副本 `.venv` > 系统 python），
+每个测试文件的完整输出在 `/tmp/rollingplan-test-<文件名>.log`。**仓库和验收副本里是同一份**（`sync_to_task.sh` 会一起同步）。
+
+改完代码同步到验收副本、顺手核对哈希：
+
+```bash
+bash sync_to_task.sh         # 只覆盖 *.py / STATE.md / README.md / run_all_tests.sh,不动 .venv / build / dist
 ```
 
 | 测试文件 | 规模 | 覆盖 |
@@ -85,7 +95,8 @@ v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成�
 
 > `run_all_tests.sh` **2026-09-16 修过**：老版把每个测试的输出 pipe 给 `tail -5`，管道退出码恒为 0 →
 > **测试全挂也报「全过」**。现在改成写日志 + 用 python 自己的退出码判断，脚本自己 exit 1。
-> 注意：这脚本只在验收副本里（没进 git；要不要收进仓库见「接下来该做什么」）。
+> 已经自测过这条路径：把一个断言故意写错 → 脚本 exit 1 并打印 FAIL（别再退回管道写法）。
+> 脚本 2026-09-16 起进 git 仓库了（以前只在验收副本，新克隆没法自测）。
 
 ## 构建（exe）
 
@@ -119,8 +130,8 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
    - Ctrl+Enter / Ctrl+D / Ctrl+Z / Ctrl+Shift+Z 在真机输入法下会不会被吃掉；
    - 每格 4 个按钮挤不挤（v0.12 就留着没确认）。
    验完把结论写回本文件的验收行，再重新打包 exe。
-2. **把 `run_all_tests.sh` 收进 git 仓库**（现在只存在于验收副本；check_commands 依赖它，
-   新克隆的仓库没法自测）。顺手可以把「测试 → 验收副本同步」写成一条命令 / 脚本。
+2. ~~把 `run_all_tests.sh` 收进 git 仓库~~ ✅ 已做（v0.22b：仓库根 `run_all_tests.sh` + `sync_to_task.sh`，
+   两个脚本都自测过失败路径）。
 3. **`main` 合并**：见上面「分支与提交」。合并前建议先真机验收一次。
 4. 还没做的方向（按价值排）：
    - **布局重设计**（执行页只显示「今天 + 加一个 / 今天完成」）
