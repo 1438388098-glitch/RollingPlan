@@ -631,6 +631,86 @@ class PlanExecutor(QWidget):
                 w.setParent(None)      # 立刻从控件树上摘掉（deleteLater 要等事件循环）
                 w.deleteLater()
 
+    def _build_note_widget(self, parent_layout, note):
+        """v0.19:归档备注 —— 老格式保留 + 末尾加可点击的「▸/▾ 展开」开关。
+
+        老 UI 直接显示「归档：任务1」;现在保留这一行 + 在尾部追加一个可点击的小箭头,
+        点一下在 row 下方插入一个「每条单独一行」的详情面板;再点收起。
+
+        老测试 (`test_scroll_v11.py` test_executor_complete_only_greys_button) 期望在
+        day_labels 里看到「归档：任务1」 —— 这里保留老 QLabel 不变,新加的可点击部分是
+        QToolButton,不影响 day_labels。
+        """
+        # 老格式:逗号分隔的那一行（保留兼容老测试和老用户阅读习惯）
+        note_label = QLabel("  归档：" + "、".join(note))
+        note_label.setFont(QFont("Microsoft YaHei", 10))
+        note_label.setStyleSheet("color: #888;")
+        parent_layout.addWidget(note_label)
+
+        # 新加:可点击的小开关 —— 默认收起,点了在下面插入详情
+        toggle = QToolButton()
+        toggle.setText("▸")
+        toggle.setCheckable(True)
+        toggle.setChecked(False)
+        toggle.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        toggle.setFont(QFont("Microsoft YaHei", 10))
+        toggle.setStyleSheet(
+            "QToolButton { border: 1px solid #888; border-radius: 3px; "
+            "color: #888; padding: 0 6px; background: transparent; }"
+            "QToolButton:checked { background: #888; color: white; }"
+        )
+        toggle.setCursor(Qt.PointingHandCursor)
+        toggle.setToolTip("展开/收起归档详情")
+        toggle.toggled.connect(lambda checked, n=note, t=toggle, p=parent_layout:
+                              self._on_note_toggle(checked, n, t, p))
+        parent_layout.addWidget(toggle)
+
+    def _on_note_toggle(self, checked, note, toggle_btn, parent_layout):
+        """▸/▾ 切换：在 row 下方插入或删除详情 widget。
+
+        parent_layout 是 QHBoxLayout（不是 widget）；detail widget 是它的子项之一。
+        为了找到它,遍历 layout 的所有 item,看 widget 是否带 objectName。
+        """
+        def _find_detail_widget(layout):
+            for i in range(layout.count()):
+                it = layout.itemAt(i)
+                w = it.widget() if it else None
+                if w is not None and w.objectName() == "rp-note-detail":
+                    return w
+            return None
+
+        detail_widget = _find_detail_widget(parent_layout)
+        if checked:
+            # 展开：插入详情
+            if detail_widget is None:
+                detail_widget = QWidget()
+                detail_widget.setObjectName("rp-note-detail")
+                detail_layout = QVBoxLayout(detail_widget)
+                detail_layout.setContentsMargins(60, 0, 0, 0)
+                detail_layout.setSpacing(2)
+                for i, plan in enumerate(note, 1):
+                    line = QLabel(f"  {i}. {plan}")
+                    line.setFont(QFont("Microsoft YaHei", 10))
+                    line.setStyleSheet("color: #666;")
+                    detail_layout.addWidget(line)
+                # 插在 stretch 之前
+                stretch_idx = -1
+                for i in range(parent_layout.count()):
+                    if parent_layout.itemAt(i).spacerItem() is not None:
+                        stretch_idx = i
+                        break
+                if stretch_idx >= 0:
+                    parent_layout.insertWidget(stretch_idx, detail_widget)
+                else:
+                    parent_layout.addWidget(detail_widget)
+            toggle_btn.setText("▾")
+        else:
+            # 收起：立刻从控件树上摘掉(findChild 立即找不到) + 删
+            if detail_widget is not None:
+                detail_widget.setParent(None)
+                detail_widget.deleteLater()
+            toggle_btn.setText("▸")
+
     def _add_slot_row(self, parent_layout, slot_name, plan, is_extra=False,
                        slot_idx=None, show_complete=False, done=False, note=None,
                        fixed=False, blocked=False):
@@ -670,12 +750,9 @@ class PlanExecutor(QWidget):
             plan_label.setStyleSheet("font-style: italic;")
         row.addWidget(plan_label)
 
-        # 这一格的归档备注
+        # 这一格的归档备注（v0.19：可点击展开/收起 —— 单击切换详情面板）
         if note:
-            note_label = QLabel("  归档：" + "、".join(note))
-            note_label.setFont(QFont("Microsoft YaHei", 10))
-            note_label.setStyleSheet("color: #888;")
-            row.addWidget(note_label)
+            self._build_note_widget(row, note)
 
         row.addStretch(1)
 
