@@ -25,7 +25,6 @@ from scheduler import PlanScheduler
 from theme import THEME_KEY, THEME_OPTIONS, apply_theme
 import animations
 import theme
-from animations import pop_window
 
 # PlanData 类型提示用（避免循环 import：rollingplan.py 会 import editor）
 from typing import TYPE_CHECKING

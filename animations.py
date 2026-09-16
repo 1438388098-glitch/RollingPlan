@@ -22,7 +22,7 @@ RollingPlan 动效模块（v0.29 新增，v0.30 R7 动效 v2 重整）。
 
 import os
 
-from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import QPropertyAnimation
 from PyQt5.QtWidgets import (
     QGraphicsOpacityEffect, QWIDGETSIZE_MAX,
 )
