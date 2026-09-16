@@ -13,6 +13,7 @@ import sys
 import os
 import json
 import logging
+import tempfile
 from logging.handlers import RotatingFileHandler
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -314,6 +315,7 @@ class PlanData:
     def __init__(self):
         self.parents = [ParentPlan("分类1")]
         self.current_parent_idx = 0
+        self.last_load_error = None   # v0.30：读档失败的原因（无错为 None）
 
     @property
     def current_parent(self):
@@ -360,21 +362,50 @@ class PlanData:
 
     def save(self):
         s = QSettings("RollingPlan", "Data")
+        # v0.30（审计 P0-1 的保险丝）：写入前把上一代数据留进 plan_data_backup。
+        # 万一新数据写坏/误操作，注册表里永远有上一份可手工找回。
+        prev = s.value("plan_data")
+        if prev:
+            s.setValue("plan_data_backup", prev)
         s.setValue("plan_data", json.dumps(self.to_dict(), ensure_ascii=False))
 
     def load(self):
+        """读档。失败时不再静默（审计 P0-1）：损坏的原始数据转存成备份文件，
+        错误信息记到 last_load_error，由 MainWindow 弹窗告知用户。"""
+        self.last_load_error = None
         s = QSettings("RollingPlan", "Data")
         data = s.value("plan_data")
         if data:
             try:
                 loaded = json.loads(data)
                 if not isinstance(loaded, dict):
-                    raise ValueError("plan_data 不是 dict")
+                    raise ValueError("plan_data 不是 JSON 对象")
                 self.from_dict(loaded)
                 return True
             except Exception as e:
-                print(f"[RollingPlan] 数据加载失败，使用默认数据: {e}")
+                self.last_load_error = str(e)
+                self._backup_corrupt_data(data)
         return False
+
+    def _backup_corrupt_data(self, raw):
+        """把读不出来/解析不了的原始数据转存到用户目录，永远可手工找回。"""
+        try:
+            from datetime import datetime
+            log_dir = os.path.expanduser("~/.hermes_cache")
+            try:
+                os.makedirs(log_dir, exist_ok=True)
+            except Exception:
+                log_dir = tempfile.gettempdir()
+            path = os.path.join(
+                log_dir,
+                "rollingplan_corrupt_backup_{}.json".format(
+                    datetime.now().strftime("%Y%m%d_%H%M%S")),
+            )
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(raw)
+            self.last_load_error += "\n损坏数据已备份到：" + path
+        except Exception:
+            pass
 
     # ====== v0.4 导入/导出 ======
 
@@ -493,7 +524,13 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.data = PlanData()
-        self.data.load()
+        if not self.data.load() and self.data.last_load_error:
+            # v0.30（审计 P0-1）：读档失败必须让用户知道，而不是「数据凭空消失」
+            QMessageBox.warning(
+                self, "数据加载失败",
+                "上次保存的数据读不出来，已用空数据启动。\n\n" + self.data.last_load_error,
+            )
+        self._start_backup_if_needed()
         self.setWindowTitle("日常计划管理")
         self.setGeometry(100, 100, 950, 850)
 
@@ -568,6 +605,17 @@ class MainWindow(QMainWindow):
         """v0.30 R7：主窗口启动出场淡入（只做一次；offscreen 自动禁用）。"""
         super().showEvent(event)
         animations.launch_fade(self)
+
+    def _start_backup_if_needed(self):
+        """v0.30：读档失败启动后，把坏掉的 plan_data 挪进 backup 位。
+        这样用户本次会话 save 出的新数据不会覆盖仅有的损坏原件（它已在 backup，
+        原件内容也已转存为时间戳备份文件）。"""
+        if self.data.last_load_error:
+            s = QSettings("RollingPlan", "Data")
+            corrupt = s.value("plan_data")
+            if corrupt:
+                s.setValue("plan_data_backup", corrupt)
+            s.remove("plan_data")
 
     def keyPressEvent(self, event):
         """只在「执行计划」页激活时，把快捷键转给 executor。

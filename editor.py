@@ -314,12 +314,17 @@ class PlanEditor(QWidget):
         # 这里只额外保存日期
 
     def on_add_parent(self):
+        """v0.30（审计 P0-5）：取消=取消。旧版把「取消」和「名字为空」都
+        当成「建一个默认分类」，用户按个 Esc 就多出一个分类还被切过去。"""
         self.save_current_to_parent()
         name, ok = QInputDialog.getText(self, "新建分类", "分类名:")
-        if ok and name.strip():
-            self.data.add_parent(name.strip())
-        else:
-            self.data.add_parent()
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "提示", "分类名不能为空")
+            return
+        self.data.add_parent(name)
         self.data.current_parent_idx = len(self.data.parents) - 1
         self.scheduler = PlanScheduler(self.data.current_parent)
         self.refresh_all()
@@ -455,6 +460,15 @@ class PlanEditor(QWidget):
         cur = self.plan_list.currentRow()
         if cur < 0:
             return
+        # v0.30（审计 P0-2）：删除不可撤销（撤销栈不覆盖编辑器），必须确认
+        name = self.data.current_parent.plans[cur]
+        box = QMessageBox(self)
+        box.setWindowTitle("确认删除")
+        box.setText("删除计划「{}」？\n\n删除后无法撤销（执行页的进度不受影响）。".format(name))
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        if box.exec_() != QMessageBox.Yes:
+            return
         self.data.current_parent.plans.pop(cur)
         self.refresh_all()
         self.data.save()
@@ -516,6 +530,15 @@ class PlanEditor(QWidget):
             return
         if self.data.has_borrowed():
             QMessageBox.warning(self, "提示", "当前有额外安排正在进行，无法修改时段。\n完成今天后再来调整吧。")
+            return
+        # v0.30（审计 P0-3）：删时段会改变每天的分格结构，今天的格子状态会重排
+        name = self.data.current_parent.time_slots[cur]["name"]
+        box = QMessageBox(self)
+        box.setWindowTitle("确认删除")
+        box.setText("删除时段「{}」？\n\n每天的分格会变化，今天的格子状态会重排；删除后无法撤销。".format(name))
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        if box.exec_() != QMessageBox.Yes:
             return
         self.data.current_parent.time_slots.pop(cur)
         self.refresh_all()
