@@ -92,6 +92,38 @@ def write_text_file(path, text):
     return path
 
 
+# v0.25：Windows 不允许出现在文件名里的字符
+_ILLEGAL_FILENAME_CHARS = set('\\/:*?"<>|')
+# Windows 保留设备名（不区分大小写，带扩展名也算）
+_RESERVED_FILENAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def safe_filename(name, fallback="归档"):
+    """v0.25：把（分类）名字洗成能当文件名的东西。
+
+    - 非法字符（\\ / : * ? " < > |）和控制字符 → `_`
+    - 首尾的空格 / 点去掉（Windows 会自己吃掉，留着容易「看起来写进了其实没有」）
+    - 洗完是空 → 用 fallback
+    - CON / PRN / COM1 这种保留设备名 → 前面加 `_`
+    """
+    text = "".join(
+        "_" if (ch in _ILLEGAL_FILENAME_CHARS or ord(ch) < 32) else ch
+        for ch in str(name)
+    )
+    text = text.strip().strip(".").strip()
+    text = text.strip()
+    if not text:
+        text = fallback
+    # 保留名连扩展名也算（NUL.txt 在 Windows 上一样不行）→ 看第一个点之前的部分
+    if text.split(".")[0].upper() in _RESERVED_FILENAMES:
+        text = "_" + text
+    return text
+
+
 def build_all_archive_text(parents, now_str=None):
     """v0.24：「全部分类」的导出 —— 每个分类一节，拼在一个文件里。"""
     now_str = now_str or QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm")
@@ -350,7 +382,7 @@ class PlanCalendarView(QWidget):
             return
         p = self.scheduler.p
         default_name = "{} 归档-{}.txt".format(
-            p.name, QDateTime.currentDateTime().toString("yyyy-MM-dd")
+            safe_filename(p.name), QDateTime.currentDateTime().toString("yyyy-MM-dd")
         )
         path, _ = QFileDialog.getSaveFileName(
             self, "导出归档", default_name, "文本文件 (*.txt)"

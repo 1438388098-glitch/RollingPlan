@@ -27,7 +27,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMessageBox, QFileDialog
 app = QApplication.instance() or QApplication(sys.argv)
 
 from rollingplan import ParentPlan, PlanData
@@ -35,7 +35,7 @@ from calendar_view import (
     PlanCalendarView, build_archive_text, export_archive_text,
     estimate_days_left, estimate_text,
     ALL_PARENTS_LABEL, summarize_all, summarize_all_text,
-    build_all_archive_text, export_all_archive_text,
+    build_all_archive_text, export_all_archive_text, safe_filename,
 )
 from scheduler import PlanScheduler
 
@@ -779,6 +779,94 @@ class TestAllParentsView(unittest.TestCase):
                 got = f.read()
         self.assertEqual(got, build_all_archive_text([pa, pb], now_str="2026-09-16 19:00"))
         self.assertIn("分类：学习", got)
+
+
+class TestSafeFilename(unittest.TestCase):
+    """v0.25：导出默认文件名的清洗（Windows 非法字符 / 保留名 / 空名）。"""
+
+    def test_legal_name_untouched(self):
+        self.assertEqual(safe_filename("备考"), "备考")
+        self.assertEqual(safe_filename("My Plans 2026"), "My Plans 2026")
+        self.assertEqual(safe_filename("复习-第1轮"), "复习-第1轮")
+
+    def test_illegal_chars_replaced(self):
+        self.assertEqual(safe_filename('a/b\\c:d*e?f"g<h>i|j'), "a_b_c_d_e_f_g_h_i_j")
+
+    def test_control_chars_replaced(self):
+        self.assertEqual(safe_filename("a\tb\nc\x01d"), "a_b_c_d")
+
+    def test_strips_spaces_and_dots(self):
+        self.assertEqual(safe_filename("  名字. "), "名字")
+        self.assertEqual(safe_filename("...名字..."), "名字")
+
+    def test_empty_falls_back(self):
+        self.assertEqual(safe_filename(""), "归档")
+        self.assertEqual(safe_filename("   "), "归档")
+        self.assertEqual(safe_filename("..."), "归档")
+        self.assertEqual(safe_filename("", fallback="未命名"), "未命名")
+
+    def test_reserved_device_names(self):
+        self.assertEqual(safe_filename("CON"), "_CON")
+        self.assertEqual(safe_filename("com1"), "_com1")
+        self.assertEqual(safe_filename("NUL.txt"), "_NUL.txt")
+
+    def _capture_default_name(self, cv):
+        """把 QFileDialog 挡掉，抓默认文件名（返回空路径 = 用户取消）。"""
+        captured = {}
+        orig = QFileDialog.getSaveFileName
+
+        def fake(parent, title, default, filt):
+            captured["default"] = default
+            return ("", "")
+
+        QFileDialog.getSaveFileName = staticmethod(fake)
+        try:
+            cv._on_export()
+        finally:
+            QFileDialog.getSaveFileName = orig
+        return captured.get("default", "")
+
+    def test_single_export_default_name_sanitized(self):
+        p = _make_parent(name='日/备:考*?<>|"')
+        data = PlanData()
+        data.parents = [p]
+        data.current_parent_idx = 0
+        cv = PlanCalendarView(data)
+        name = self._capture_default_name(cv)
+        for ch in '\\/:*?"<>|':
+            self.assertNotIn(ch, name)
+        self.assertIn("归档-", name)
+        self.assertTrue(name.endswith(".txt"))
+
+    def test_all_export_default_name_safe(self):
+        p = _make_parent(name="备考")
+        data = PlanData()
+        data.parents = [p]
+        data.current_parent_idx = 0
+        cv = PlanCalendarView(data)
+        cv.parent_combo.setCurrentIndex(0)          # 「全部分类」
+        name = self._capture_default_name(cv)
+        self.assertIn("全部分类归档", name)
+        self.assertTrue(name.endswith(".txt"))
+        for ch in '\\/:*?"<>|':
+            self.assertNotIn(ch, name)
+
+    def test_cancel_does_not_write_file(self):
+        """点取消 → 不写文件、不弹提示。"""
+        p = _make_parent(name="备考")
+        data = PlanData()
+        data.parents = [p]
+        data.current_parent_idx = 0
+        cv = PlanCalendarView(data)
+        infos = []
+        orig = QMessageBox.information
+        QMessageBox.information = staticmethod(lambda *a, **k: infos.append(a))
+        try:
+            name = self._capture_default_name(cv)
+        finally:
+            QMessageBox.information = orig
+        self.assertTrue(name)
+        self.assertEqual(infos, [])
 
 
 class TestEstimateDaysLeft(unittest.TestCase):
