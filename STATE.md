@@ -1,8 +1,8 @@
 # RollingPlan — 当前工作状态
 
-> **最后更新**：2026-09-16 18:25
+> **最后更新**：2026-09-16 19:35
 > **相关目录**：`D:\0-task\rollingplan`（验收副本） / `D:\0_git\RollingPlan`（git 仓库）
-> **代码最新在**：分支 `autopilot/a1f32a7e7932`（HEAD = `e7b4a00`）—— `main` 还停在 v0.12，别对着 main 找新代码
+> **代码最新在**：分支 `autopilot/348240aadc58`（HEAD = `aa2267a`）—— `main` 还停在 v0.12，别对着 main 找新代码
 > **接手先读本文件**：项目状态都记在这儿（版本 / 分支 / 改动 / 测试 / 路径 / 待办 / 坑）
 
 ## 项目一句话
@@ -11,8 +11,8 @@ PyQt5 桌面应用。**v0.22**：「日常计划管理」——计划是一列**
 额外轮 = 「当天额外的时间栏」。每一格四个动作：仅完成 / 完成并滚动 / 固定计划 / 拦截滚动（拦截连带额外轮）；
 上方「📋 额外安排（N）」细长条打开当天额外安排列表。多分类 + 添加指定 + 退回（可撤销）+ 导入导出 JSON +
 重置进度 + 三主题 + 快捷键（Ctrl+Enter 加一个 / Ctrl+D 今天完成 / Ctrl+Z 撤销 / Ctrl+Shift+Z·Ctrl+Y 重做）+
-撤销栈 + 第三页「📊 归档总览」（进度 / 归档历史**按天分组** / 今天完成 + 各时段归档备注 / **⬇ 导出归档**成 .txt；
-切天也能 Ctrl+Z 退回）。
+撤销栈 + 第三页「📊 归档总览」（进度 + 「还剩 N 条 ≈ 还要 N 天」估算 / 归档历史**按天分组、可折叠** /
+今天完成 + 各时段归档备注 / **⬇ 导出归档**成 .txt / 下拉还能选「（全部分类）」看全局；切天也能 Ctrl+Z 退回）。
 
 ## 分支与提交（重要）
 
@@ -23,13 +23,14 @@ PyQt5 桌面应用。**v0.22**：「日常计划管理」——计划是一列**
 | `autopilot/283447bffad0` | v0.13 快捷键 / v0.13 回归测试 / v0.14 抽 theme.py | `6374c90` |
 | `autopilot/2c7bffb2db41` | v0.15 抽 scheduler.py / v0.16 撤销栈 / v0.17 抽 editor.py / v0.18 归档总览页 / v0.19 归档备注可展开 | `a63e433` |
 | `autopilot/65dba054e425` | v0.20 修 Ctrl+Shift+Z·Ctrl+Y 未绑 / v0.21 抽 executor.py / v0.22 归档按天分组 | `7321579` |
-| `autopilot/a1f32a7e7932` | **v0.22b** 切天可撤销 / 归档导出文本 / 测试脚本进仓库 | `e7b4a00` |
+| `autopilot/a1f32a7e7932` | v0.22b 切天可撤销 / 归档导出文本 / 测试脚本进仓库 | `e7b4a00` |
+| `autopilot/348240aadc58` | **v0.23~v0.25** 剩余天数估算 / 按天折叠 / 全部分类汇总 / 文件名清洗 / README 更新 | `aa2267a` |
 
 链是线性的（后一个 run 从上一个分支 tip 起）。要合进 main：
 
 ```bash
 cd /mnt/d/0_git/RollingPlan
-git checkout main && git merge --ff-only autopilot/a1f32a7e7932
+git checkout main && git merge --ff-only autopilot/348240aadc58
 # 想推就再 git push origin main（配置里 push:false，我没推过）
 ```
 
@@ -50,6 +51,9 @@ git checkout main && git merge --ff-only autopilot/a1f32a7e7932
 | v0.22b | **切天（今天完成）可撤销**：`on_next_day` 先 `push_history()`，Ctrl+Z 整块退回前一天 |
 | v0.22b | **归档导出**：第三页右上「⬇ 导出归档」→ `build_archive_text()` / `export_archive_text()` 写 UTF-8 文本 |
 | v0.22b | **测试基建**：`run_all_tests.sh` 进仓库（自动挑解释器、退出码 0/1/2）+ `sync_to_task.sh`（哈希核对同步） |
+| v0.23 | **剩余天数估算**：第三页「还剩 N 条 ≈ 还要 N 天（每天 N 格）」；**归档历史按天折叠**（▾/▸ + 全部展开/收起，默认只展开最近一天） |
+| v0.24 | **「（全部分类）」汇总视图**：下拉第 0 项，合计进度 + 估算 + 每个分类一块（进度 / 最近 3 条归档 / 今天完成）；导出支持一次写出全部分类 |
+| v0.25 | **导出文件名清洗** `safe_filename()`（Windows 非法字符 / 首尾空格点 / 空名 / CON·NUL.txt 保留名）；**README 更新到 v0.25** |
 
 v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成并滚动 / 队列模型）见 git 历史里 `main` 的提交。
 
@@ -61,7 +65,7 @@ v0.12 及以前（额外轮纳入拦截 / 固定 / 拦截 / 仅完成 / 完成�
 | `executor.py` | 787 | `PlanExecutor`（执行页）+ `ExtraArrangementsDialog` |
 | `editor.py` | 621 | `PlanEditor`（制定计划页） |
 | `scheduler.py` | 565 | `PlanScheduler`（队列 / 当天行 / 完成 / 滚动 / 额外轮的算法都在这儿） |
-| `calendar_view.py` | 330 | `PlanCalendarView`（归档总览页，按天分组 + `build_archive_text` / `export_archive_text` 导出） |
+| `calendar_view.py` | 619 | `PlanCalendarView`（归档总览：按天分组 + 折叠 + 全部分类 + 导出）+ 纯函数 `build_archive_text` / `build_all_archive_text` / `estimate_days_left` / `summarize_all` / `safe_filename` |
 | `theme.py` | 388 | 三套 QSS + `apply_theme` |
 
 ## 测试状态
@@ -94,7 +98,7 @@ bash sync_to_task.sh         # 只覆盖 *.py / STATE.md / README.md / run_all_t
 | `test_scroll_v11.py` | 170 断言 | v0.9~v0.12 滚动语义全量 |
 | `test_regression_v13.py` | 41 断言 | v0.9 队列模型回归 |
 | `test_undo_v16.py` | 30 用例 | v0.16 撤销栈 + **v0.22b 切天可撤销** |
-| `test_calendar_v18.py` | 38 用例 | v0.18 归档总览 + **v0.22 按天分组** + **v0.22b 归档导出**（含真实写盘回读） |
+| `test_calendar_v18.py` | 73 用例 | v0.18 归档总览 + v0.22 按天分组 + v0.22b 导出 + v0.23 估算 / 折叠 + v0.24 全部分类 + v0.25 文件名清洗 |
 | `test_note_v19.py` | 8 用例 | v0.19 归档备注展开 |
 | `test_keyboard_v20.py` | 5 用例 | v0.13 + v0.20 快捷键（含修好的 redo） |
 
@@ -132,8 +136,11 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
    - 第三页「归档总览」的排版（进度 / 按天分组的归档历史 / 今天完成 + 时段备注）宽窄合不合适；
      **深色主题下分隔标题的对比度**（v0.22 起标题色取自调色板半透明，不再写死灰 `#555`）；
    - 「⬇ 导出归档」按钮的位置 + 导出的 .txt 用 Windows 记事本打开有没有乱码（写的是 UTF-8 带 BOM）；
+     分类名里带 `/ : * ?` 之类的默认文件名会不会还是非法（v0.25 起会换成 `_`）；
    - 「今天完成」误点之后 **Ctrl+Z 能不能退回前一天**（v0.22b），撤销按钮文案会不会显示成「↶ 撤销「进入下一天」」；
-   - 「📅 第 N 天」分组在归档很多时会不会太长（列表没有折叠）；
+   - 「📅 第 N 天」分组**点标题能不能收起/展开**（v0.23）、「全部展开 / 收起」按钮顺不顺手；
+   - 下拉切到「（全部分类）」时的排版（每个分类一块 + 最近 3 条归档）够不够看（v0.24）；
+   - 进度区那行「还剩 N 条 ≈ 还要 N 天」的措辞 / 字号（v0.23）；
    - Ctrl+Enter / Ctrl+D / Ctrl+Z / Ctrl+Shift+Z 在真机输入法下会不会被吃掉；
    - 每格 4 个按钮挤不挤（v0.12 就留着没确认）。
    验完把结论写回本文件的验收行，再重新打包 exe。
@@ -145,7 +152,7 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
    - **今日模式**（把「今天」单独做一页）
    - 清理 `borrow_slot()` / `available_borrow_names()`（v0.3~v0.8 的按时段名旧入口，UI 已不用，
      留着只为旧调用和 `test_v2_2` 回归）
-   - README 版本表还停在 v0.12（和本文件一起更新更好）
+   - ~~README 版本表~~ ✅ v0.25 已更新
 5. **待用户确认的语义**（提过没定的）：
    - 「固定计划」是否允许后面的计划**越过**它去填前面的空位（现语义：允许 → 早1中2晚3 固定中、滚早 → 早3 中2 晚空）
    - 「直接拉取」是否要指定拉进今天某个具体时间栏（现语义：列表里一个按钮，按顺序拉下一条）
@@ -179,6 +186,14 @@ cd /mnt/c && cmd.exe /c "cd /d D:\0-task\rollingplan && python -m PyInstaller --
 - **归档页列表行的标记**：`QListWidgetItem.setData(Qt.UserRole, "day_header"|"plan"|"placeholder")`
   （条目行还有 `UserRole+1` = 在 `archived` 里的下标）。测试按标记筛行，**别硬编码下标**——
   v0.22 加分隔标题时，老测试就是靠 `item(1)` 定位而集体错位的。
+- **v0.23 折叠只是显示状态**：`_day_open` / `_expand_all` 只在会话里（不写盘、不动数据）；
+  `_archive_rows()` 对收起的那一天**不产出行** → 测试里想断言全部条目要先 `cv._on_toggle_all()`。
+  分隔标题从 v0.23 起是 `Qt.ItemIsEnabled`（可点、不可选），不再是 `NoItemFlags`。
+- **v0.24 下拉第 0 项是「（全部分类）」**：分类的下标 = 下拉下标 **- 1**（`setCurrentIndex(1)` 是第一个分类）；
+  `self._all_mode` 为真时 `self.scheduler is None`（别直接 `.p`，走 `_refresh_all_view()`）。
+- **导出的默认文件名必须过 `safe_filename()`**：新加导出入口时别忘了（Windows 非法字符 / 保留名）。
+- **估算口径**：`estimate_days_left` = (总条数 - 归档数) ÷ 每天格数，向上取整；「全部分类」的
+  每天格数是**各分类格数之和**（不是取最大），所以合计天数可能比单个分类少。
 - `from_dict` 会迁移 v0.8 的 `completed_today`（slot 序号 → 计划内容）。
 - 内部 docstring / 变量名还留着「母计划 / 子计划 / 借」等旧术语（只在代码里，UI 文案已经改过）。
 - 测试文件名 `test_v2_2.py` 是历史遗留（README 里写的），保留不动。
