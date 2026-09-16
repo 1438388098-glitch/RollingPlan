@@ -682,12 +682,28 @@ class PlanExecutor(QWidget):
             self.data.save()
             self.refresh()
 
+    def _flash_status(self):
+        """v0.30 R34（走查 #8）：状态行闪 success 色，让「生效了」看得见。"""
+        if not animations.enabled():
+            return
+        self.status_label.setObjectName("rpFlash")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(900, self._unflash_status)
+
+    def _unflash_status(self):
+        self.status_label.setObjectName("rpDim")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+
     def on_complete_slot(self, slot_idx):
         """完成并滚动：归档这一格，后面的整体上滚一格"""
         if self.scheduler.complete_today_slot(slot_idx):
             self.data.save()
             self.refresh()
             animations.fade_in(self.day_container, theme.MOTION["fast"])   # 完成滚动后的轻反馈
+            self._flash_status()
 
     def on_next_day(self):
         p = self.data.current_parent

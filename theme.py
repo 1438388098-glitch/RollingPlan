@@ -168,6 +168,7 @@ QLabel#rpTitle { font-size: 17pt; font-weight: bold; color: $text_strong; }
 QLabel#rpH2 { font-size: 14pt; font-weight: bold; color: $text_strong; }
 QLabel#rpDim { color: $text_dim; }
 QLabel#rpSmall { font-size: 11pt; color: $text_dim; }
+QLabel#rpFlash { color: $success; font-weight: bold; }
 QLabel#rpSlotName { font-size: 13pt; font-weight: bold; color: $text_dim; }
 QLabel#rpFaint { color: $text_faint; }
 QLabel#rpDone { color: $text_faint; text-decoration: line-through; }
